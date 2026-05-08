@@ -336,8 +336,8 @@ export default function Scheduling() {
             >
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Manage Sections</h3>
-                  <p className="text-xs text-slate-500">Add or remove academic sections</p>
+                  <h3 className="text-lg font-bold text-black">Manage Sections</h3>
+                  <p className="text-xs text-slate-600">Add or remove academic sections</p>
                 </div>
                 <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
                   <Settings className="h-5 w-5" />
@@ -420,8 +420,8 @@ export default function Scheduling() {
               <form onSubmit={handleAddSchedule}>
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900">Schedule Class</h3>
-                    <p className="text-xs text-slate-500">Add subject to {selectedSection}</p>
+                    <h3 className="text-lg font-bold text-black">Schedule Class</h3>
+                    <p className="text-xs text-slate-600">Add subject to {selectedSection}</p>
                   </div>
                   <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
                     <BookOpen className="h-5 w-5" />
