@@ -1,4 +1,4 @@
-import { Edit, GraduationCap, LayoutDashboard, LogOut, Settings, Users, BookOpen } from 'lucide-react';
+import { Edit, GraduationCap, LayoutDashboard, LogOut, Settings, Users, BookOpen, Calendar } from 'lucide-react';
 
 export const MENU_ITEMS = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -6,5 +6,6 @@ export const MENU_ITEMS = [
   { icon: Users, label: 'Student Records', path: '/records' },
   { icon: Edit, label: 'Enrollment Steps', path: '/steps' },
   { icon: BookOpen, label: 'Courses', path: '/courses' },
+  { icon: Calendar, label: 'Class Scheduling', path: '/scheduling' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];

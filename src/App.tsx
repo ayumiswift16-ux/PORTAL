@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { User, EnrollmentData } from './types';
@@ -13,6 +13,7 @@ import Enroll from './pages/Enroll';
 import Records from './pages/Records';
 import Courses from './pages/Courses';
 import Settings from './pages/Settings';
+import Scheduling from './pages/Scheduling';
 import Steps from './pages/Steps';
 import { MainLayout } from './components/layout/MainLayout';
 import { PageTransition } from './components/layout/PageTransition';
@@ -62,6 +63,7 @@ export default function App() {
                   <Route path="/records" element={<PageTransition><Records /></PageTransition>} />
                   <Route path="/steps" element={<PageTransition><Steps /></PageTransition>} />
                   <Route path="/courses" element={<PageTransition><Courses /></PageTransition>} />
+                  <Route path="/scheduling" element={<PageTransition><Scheduling /></PageTransition>} />
                   <Route path="/settings" element={<PageTransition><Settings /></PageTransition>} />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>

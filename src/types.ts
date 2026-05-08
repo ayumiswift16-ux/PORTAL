@@ -31,3 +31,21 @@ export interface User {
   name: string;
   role: 'admin';
 }
+
+export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+
+export interface Section {
+  name: string;
+  yearLevel: YearLevel;
+}
+
+export interface ScheduleItem {
+  id: string;
+  section: string;
+  subject: string;
+  day: Day;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  instructor: string;
+  room: string;
+}

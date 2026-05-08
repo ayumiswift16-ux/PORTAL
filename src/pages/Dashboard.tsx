@@ -114,7 +114,7 @@ export default function Dashboard() {
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 12 }} 
-                  />
+                   />
                   <Tooltip 
                     contentStyle={{ 
                       borderRadius: '12px', 

@@ -61,7 +61,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
         )}
       </AnimatePresence>
 
-      <div className="lg:pl-64 flex flex-col min-h-screen bg-glass-gradient">
+      <div className="lg:pl-[240px] flex flex-col min-h-screen bg-glass-gradient">
         <Navbar user={user} />
         
         {/* Mobile menu toggle */}
