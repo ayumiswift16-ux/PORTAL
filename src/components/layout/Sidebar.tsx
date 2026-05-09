@@ -3,13 +3,19 @@ import { motion } from 'motion/react';
 import { LogOut, GraduationCap } from 'lucide-react';
 import { MENU_ITEMS } from './Sidebar.data';
 import { cn } from '@/src/utils/cn';
+import { User } from '@/src/types';
 
 interface SidebarProps {
+  user: User | null;
   onLogout: () => void;
 }
 
-export function Sidebar({ onLogout }: SidebarProps) {
+export function Sidebar({ user, onLogout }: SidebarProps) {
   const navigate = useNavigate();
+
+  const filteredItems = MENU_ITEMS.filter(item => 
+    !item.roles || (user && item.roles.includes(user.role))
+  );
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-[240px] bg-[#0f172a] text-slate-400 border-r border-slate-800 z-40 hidden lg:flex flex-col">
@@ -17,16 +23,16 @@ export function Sidebar({ onLogout }: SidebarProps) {
         <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-lg">
           CdM
         </div>
-        <div className="flex flex-col">
-          <span className="text-white font-bold tracking-tight text-base leading-tight">Collegio de</span>
+        <div className="flex flex-col text-left">
+          <span className="text-white font-bold tracking-tight text-base leading-tight">Colegio de</span>
           <span className="text-sm font-normal text-slate-400">Montalban</span>
         </div>
       </div>
 
       <nav className="flex-1 px-4 space-y-1">
-        <p className="px-2 pb-2 text-[10px] font-bold text-slate-600 uppercase tracking-widest">Main Menu</p>
+        <p className="px-2 pb-2 text-[10px] font-bold text-slate-600 uppercase tracking-widest text-left">Main Menu</p>
         
-        {MENU_ITEMS.map((item) => (
+        {filteredItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}

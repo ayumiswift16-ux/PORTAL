@@ -6,7 +6,7 @@
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { User, EnrollmentData } from './types';
+import { User, EnrollmentRecord } from './types';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Enroll from './pages/Enroll';
@@ -60,11 +60,25 @@ export default function App() {
                 <Routes>
                   <Route path="/dashboard" element={<PageTransition><Dashboard /></PageTransition>} />
                   <Route path="/enroll" element={<PageTransition><Enroll /></PageTransition>} />
-                  <Route path="/records" element={<PageTransition><Records /></PageTransition>} />
+                  <Route 
+                    path="/records" 
+                    element={
+                      user.role === 'admin' 
+                        ? <PageTransition><Records /></PageTransition> 
+                        : <Navigate to="/dashboard" replace />
+                    } 
+                  />
                   <Route path="/steps" element={<PageTransition><Steps /></PageTransition>} />
                   <Route path="/courses" element={<PageTransition><Courses /></PageTransition>} />
                   <Route path="/scheduling" element={<PageTransition><Scheduling /></PageTransition>} />
-                  <Route path="/settings" element={<PageTransition><Settings /></PageTransition>} />
+                  <Route 
+                    path="/settings" 
+                    element={
+                      user.role === 'admin' 
+                        ? <PageTransition><Settings /></PageTransition> 
+                        : <Navigate to="/dashboard" replace />
+                    } 
+                  />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </MainLayout>

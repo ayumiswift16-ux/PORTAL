@@ -29,7 +29,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
       <BackgroundBlobs />
       
       {/* PC Sidebar */}
-      <Sidebar onLogout={onLogout} />
+      <Sidebar user={user} onLogout={onLogout} />
 
       {/* Mobile Sidebar */}
       <AnimatePresence>
@@ -49,7 +49,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
               className="fixed left-0 top-0 bottom-0 w-64 bg-slate-950 z-50 lg:hidden flex flex-col"
             >
-              <Sidebar onLogout={onLogout} />
+              <Sidebar user={user} onLogout={onLogout} />
               <button 
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="absolute top-4 right-[-48px] bg-slate-950 text-white p-2 rounded-r-xl"

@@ -4,9 +4,22 @@
     <meta charset="utf-8">
     <title>Collegio de Montalban - Enrollment System</title>
     <script type="text/javascript">
-      // Simple 404 redirect for GitHub Pages HashRouter
-      var pathSegment = window.location.pathname.split('/')[1];
-      window.location.replace(window.location.origin + '/' + pathSegment + '/index.html' + window.location.hash);
+      // Redirect to HashRouter path for GitHub Pages subfolder deployment
+      (function() {
+        var path = window.location.pathname;
+        var subfolder = '/PORTAL/';
+        if (path.indexOf(subfolder) !== -1) {
+          var route = path.split(subfolder)[1];
+          if (route && route !== 'index.html') {
+            window.location.replace(window.location.origin + subfolder + '#/' + route + window.location.search + window.location.hash);
+          } else {
+            window.location.replace(window.location.origin + subfolder + '#/' + window.location.search + window.location.hash);
+          }
+        } else {
+          // Fallback for root or other structures
+          window.location.replace(window.location.origin + window.location.pathname + '#/' + window.location.search + window.location.hash);
+        }
+      })();
     </script>
   </head>
   <body>

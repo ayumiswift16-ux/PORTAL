@@ -1,7 +1,8 @@
-import { EnrollmentData } from './types';
+import { EnrollmentRecord } from './types';
 
-export const MOCK_ENROLLMENTS: EnrollmentData[] = [
+export const MOCK_ENROLLMENTS: EnrollmentRecord[] = [
   {
+    id: 'mock-1',
     studentInfo: {
       firstName: 'Juan',
       middleName: 'D.',
@@ -14,13 +15,16 @@ export const MOCK_ENROLLMENTS: EnrollmentData[] = [
       birthday: '2004-05-15',
       studentId: '2022-00123',
       yearLevel: '2nd Year',
+      section: 'BSIT - 2A'
     },
     type: 'Regular',
     course: 'BSIT',
+    yearLevel: '2nd Year',
     status: 'Enrolled',
     enrolledAt: '2026-05-01 10:30',
   },
   {
+    id: 'mock-2',
     studentInfo: {
       firstName: 'Maria',
       middleName: 'S.',
@@ -33,13 +37,16 @@ export const MOCK_ENROLLMENTS: EnrollmentData[] = [
       birthday: '2005-08-20',
       studentId: '2023-00456',
       yearLevel: '1st Year',
+      section: 'BSCPE - 1A'
     },
     type: 'Regular',
     course: 'BSCPE',
+    yearLevel: '1st Year',
     status: 'Enrolled',
     enrolledAt: '2026-05-02 14:15',
   },
   {
+    id: 'mock-3',
     studentInfo: {
       firstName: 'Pedro',
       middleName: 'A.',
@@ -55,10 +62,12 @@ export const MOCK_ENROLLMENTS: EnrollmentData[] = [
     },
     type: 'Irregular',
     course: 'BS ENTREP',
+    yearLevel: '3rd Year',
     status: 'Pending',
     enrolledAt: '2026-05-05 09:00',
   },
   {
+    id: 'mock-4',
     studentInfo: {
       firstName: 'Elena',
       middleName: 'G.',
@@ -71,13 +80,16 @@ export const MOCK_ENROLLMENTS: EnrollmentData[] = [
       birthday: '2002-03-25',
       studentId: '2020-00321',
       yearLevel: '4th Year',
+      section: 'BEEd - 4A'
     },
     type: 'Returnee',
     course: 'BEEd GEN',
+    yearLevel: '4th Year',
     status: 'Enrolled',
     enrolledAt: '2026-05-06 11:45',
   },
   {
+    id: 'mock-5',
     studentInfo: {
       firstName: 'Ricardo',
       middleName: 'M.',
@@ -93,6 +105,7 @@ export const MOCK_ENROLLMENTS: EnrollmentData[] = [
     },
     type: 'Regular',
     course: 'BTLED-ICT',
+    yearLevel: '2nd Year',
     status: 'Approved',
     enrolledAt: '2026-05-07 08:30',
   }

@@ -16,20 +16,23 @@ export interface StudentInfo {
   birthday: string;
   studentId: string;
   yearLevel: YearLevel;
+  section?: string;
 }
 
-export interface EnrollmentData {
+export interface EnrollmentRecord {
+  id: string;
   studentInfo: StudentInfo;
   type: EnrollmentType;
   course: Course;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Enrolled';
+  yearLevel: YearLevel;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Enrolled' | 'Validating';
   enrolledAt: string;
 }
 
 export interface User {
   username: string;
   name: string;
-  role: 'admin';
+  role: 'admin' | 'student';
 }
 
 export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';

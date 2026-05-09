@@ -5,12 +5,18 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../co
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { cn } from '../utils/cn';
-import { Day, ScheduleItem, Section, YearLevel } from '../types';
+import { Day, ScheduleItem, Section, YearLevel, User as UserType, EnrollmentRecord } from '../types';
 import { toast } from 'react-hot-toast';
 
 const DAYS: Day[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function Scheduling() {
+  const [user] = useState<UserType | null>(() => {
+    const saved = localStorage.getItem('cdm_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const isAdmin = user?.role === 'admin';
+
   const [sections, setSections] = useState<Section[]>(() => {
     const saved = localStorage.getItem('cdm_sections');
     if (saved) {
@@ -32,6 +38,21 @@ export default function Scheduling() {
   });
   const [selectedSection, setSelectedSection] = useState(sections[0]?.name || '');
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+
+  useEffect(() => {
+    // If student, find their assigned section
+    if (!isAdmin && user) {
+      const allSaved = localStorage.getItem('cdm_all_enrollments');
+      if (allSaved) {
+        const all: EnrollmentRecord[] = JSON.parse(allSaved);
+        const mine = all.find(r => r.id === user.username);
+        if (mine?.studentInfo?.section) {
+          setSelectedSection(mine.studentInfo.section);
+        }
+      }
+    }
+  }, [isAdmin, user]);
+
   const [isAdding, setIsAdding] = useState(false);
   const [isManagingSections, setIsManagingSections] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
@@ -166,77 +187,94 @@ export default function Scheduling() {
               {currentTime.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Class Scheduling</h1>
-          <p className="text-slate-500 mt-1">Manage weekly subject schedules for all sections.</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Class Schedule</h1>
+          <p className="text-slate-500 mt-1">
+            {isAdmin 
+              ? "Manage weekly subject schedules for all sections." 
+              : `Viewing weekly schedule for ${selectedSection || 'your section'}`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
-            onClick={() => setIsManagingSections(true)} 
-            className="flex items-center gap-2"
-          >
-            <Settings className="h-4 w-4" />
-            Manage Sections
-          </Button>
-          <Button 
-            onClick={() => setIsAdding(true)} 
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add New Schedule
-          </Button>
+          {isAdmin && (
+            <>
+              <Button 
+                variant="ghost" 
+                onClick={() => setIsManagingSections(true)} 
+                className="flex items-center gap-2"
+              >
+                <Settings className="h-4 w-4" />
+                Manage Sections
+              </Button>
+              <Button 
+                onClick={() => setIsAdding(true)} 
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add New Schedule
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Section Dropdown Selector */}
-      <div className="relative z-20 mb-8 max-w-xs">
-        <button
-          onClick={() => setIsSectionOpen(!isSectionOpen)}
-          className="flex items-center justify-between w-full px-6 py-3 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-blue-400 transition-all text-black font-bold"
-        >
-          <div className="flex items-center gap-3">
-            <div className="h-2 w-2 rounded-full bg-blue-500" />
-            {selectedSection || 'Select Section'}
-          </div>
-          <ChevronDown className={cn("h-4 w-4 transition-transform", isSectionOpen && "rotate-180")} />
-        </button>
+      {isAdmin && (
+        <div className="relative z-20 mb-8 max-w-xs">
+          <button
+            onClick={() => setIsSectionOpen(!isSectionOpen)}
+            className="flex items-center justify-between w-full px-6 py-3 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-blue-400 transition-all text-black font-bold"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-2 w-2 rounded-full bg-blue-500" />
+              {selectedSection || 'Select Section'}
+            </div>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", isSectionOpen && "rotate-180")} />
+          </button>
 
-        <AnimatePresence>
-          {isSectionOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden py-2"
-            >
-              {sections.filter(s => s.name).map(section => (
-                <button
-                  key={section.name}
-                  onClick={() => {
-                    setSelectedSection(section.name);
-                    setIsSectionOpen(false);
-                  }}
-                  className={cn(
-                    "flex items-center justify-between w-full px-6 py-3 text-sm transition-colors border-b last:border-0 border-slate-50",
-                    selectedSection === section.name 
-                      ? "bg-blue-600 text-white font-bold" 
-                      : "text-slate-600 hover:bg-slate-50"
-                  )}
-                >
-                  <span className="text-black">{section.name}</span>
-                  <span className={cn(
-                    "text-[10px] font-bold uppercase",
-                    selectedSection === section.name ? "text-white" : "text-slate-500"
-                  )}>{section.yearLevel}</span>
-                </button>
-              ))}
-              {sections.length === 0 && (
-                <div className="px-6 py-4 text-sm text-slate-400">No sections added yet.</div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          <AnimatePresence>
+            {isSectionOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden py-2"
+              >
+                {sections.filter(s => s.name).map(section => (
+                  <button
+                    key={section.name}
+                    onClick={() => {
+                      setSelectedSection(section.name);
+                      setIsSectionOpen(false);
+                    }}
+                    className={cn(
+                      "flex items-center justify-between w-full px-6 py-3 text-sm transition-colors border-b last:border-0 border-slate-50",
+                      selectedSection === section.name 
+                        ? "bg-blue-600 text-white font-bold" 
+                        : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <span className="text-black">{section.name}</span>
+                    <span className={cn(
+                      "text-[10px] font-bold uppercase",
+                      selectedSection === section.name ? "text-white" : "text-slate-500"
+                    )}>{section.yearLevel}</span>
+                  </button>
+                ))}
+                {sections.length === 0 && (
+                  <div className="px-6 py-4 text-sm text-slate-400">No sections added yet.</div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {!isAdmin && !selectedSection && (
+        <div className="mb-8 p-4 bg-amber-50 rounded-2xl border border-amber-200 flex items-center gap-3 text-amber-800">
+          <AlertCircle className="h-5 w-5" />
+          <p className="text-sm font-bold">You haven't been assigned to a section yet. Please wait for the registrar to approve your enrollment.</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {DAYS.map(day => {
@@ -257,12 +295,14 @@ export default function Scheduling() {
                   <div className="space-y-4">
                     {dayItems.map(item => (
                       <div key={item.id} className="group relative bg-white rounded-xl p-4 border border-slate-100 hover:border-blue-200 hover:shadow-md transition-all">
-                        <button 
-                          onClick={() => removeSchedule(item.id)}
-                          className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {isAdmin && (
+                          <button 
+                            onClick={() => removeSchedule(item.id)}
+                            className="absolute top-2 right-2 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         
                         <div className="flex items-center gap-2 mb-2">
                           <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">

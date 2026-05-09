@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -18,7 +18,7 @@ import { Card, CardContent, CardTitle } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 import { ENROLLMENT_TYPES, COURSES, YEAR_LEVELS } from '@/src/constants';
-import { StudentInfo, EnrollmentType, Course, YearLevel } from '@/src/types';
+import { StudentInfo, EnrollmentType, Course, YearLevel, User as UserType, EnrollmentRecord } from '@/src/types';
 import { cn } from '@/src/utils/cn';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
@@ -45,13 +45,46 @@ const INITIAL_STUDENT_INFO: StudentInfo = {
 };
 
 export default function Enroll() {
+  const [user, setUser] = useState<UserType | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [studentInfo, setStudentInfo] = useState<StudentInfo>(INITIAL_STUDENT_INFO);
   const [enrollmentType, setEnrollmentType] = useState<EnrollmentType>('Regular');
   const [selectedCourse, setSelectedCourse] = useState<Course>('BSIT');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<'Not Started' | 'Validating' | 'Enrolled'>('Not Started');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('cdm_user');
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      setUser(parsedUser);
+      
+      // Check global enrollment status
+      const allSaved = localStorage.getItem('cdm_all_enrollments');
+      if (allSaved && parsedUser.role === 'student') {
+        const all: EnrollmentRecord[] = JSON.parse(allSaved);
+        const mine = all.find(r => r.id === parsedUser.username);
+        if (mine) {
+          setEnrollmentStatus(mine.status);
+          setStudentInfo(mine.studentInfo);
+          setEnrollmentType(mine.type);
+          setSelectedCourse(mine.course);
+        } else {
+          // Fallback to simpler local storage if not in global (for backward compatibility during dev)
+          const savedInfo = localStorage.getItem(`cdm_enrollment_${parsedUser.username}`);
+          if (savedInfo) {
+            setStudentInfo(JSON.parse(savedInfo));
+            setEnrollmentStatus('Validating');
+          }
+        }
+      }
+    }
+  }, []);
+
+  const isAdmin = user?.role === 'admin';
+  const isReadOnly = enrollmentStatus === 'Enrolled' && !isAdmin;
 
   const handleNext = () => {
     if (currentStep < 3) setCurrentStep(currentStep + 1);
@@ -62,17 +95,53 @@ export default function Enroll() {
   };
 
   const handleSubmit = () => {
+    // Current timestamp
+    const now = new Date().toISOString();
+    
+    // Construct the enrollment record
+    const newRecord: EnrollmentRecord = {
+      id: user?.username || Math.random().toString(36).substring(7),
+      studentInfo: {
+        ...studentInfo,
+        studentId: studentInfo.studentId || '' // Keep empty if not admin assigned yet
+      },
+      type: enrollmentType,
+      course: selectedCourse,
+      yearLevel: studentInfo.yearLevel,
+      status: 'Validating', // Fixed requirement: starts as validating
+      enrolledAt: now
+    };
+
+    // Save to global simulated data store for Admin
+    const allSaved = localStorage.getItem('cdm_all_enrollments');
+    const allEnrollments: EnrollmentRecord[] = allSaved ? JSON.parse(allSaved) : [];
+    
+    // Replace or add new enrollment
+    const recordIndex = allEnrollments.findIndex(r => r.id === newRecord.id);
+    if (recordIndex >= 0) {
+      allEnrollments[recordIndex] = newRecord;
+    } else {
+      allEnrollments.push(newRecord);
+    }
+    localStorage.setItem('cdm_all_enrollments', JSON.stringify(allEnrollments));
+
+    // Save student's specific info for their view
+    if (user?.role === 'student') {
+      localStorage.setItem(`cdm_enrollment_${user.username}`, JSON.stringify(studentInfo));
+    }
+    
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
       setIsSuccess(true);
+      setEnrollmentStatus('Validating');
       confetti({
         particleCount: 150,
         spread: 70,
         origin: { y: 0.6 },
-        colors: ['#2563eb', '#4f46e5', '#10b981']
+        colors: ['#064e3b', '#10b981', '#ffffff']
       });
-      toast.success('Enrollment submitted successfully!');
+      toast.success(enrollmentStatus === 'Validating' ? 'Information updated successfully!' : 'Enrollment submitted successfully!');
     }, 2000);
   };
 
@@ -80,7 +149,7 @@ export default function Enroll() {
     setCurrentStep(1);
     setStudentInfo(INITIAL_STUDENT_INFO);
     setIsSuccess(false);
-    navigate('/records');
+    navigate(isAdmin ? '/records' : '/dashboard');
   };
 
   if (isSuccess) {
@@ -100,7 +169,7 @@ export default function Enroll() {
           transition={{ delay: 0.2 }}
           className="text-4xl font-extrabold text-slate-900 mb-2"
         >
-          Congratulations!
+          {enrollmentStatus === 'Validating' ? 'Information Updated!' : 'Congratulations!'}
         </motion.h2>
         <motion.p
           initial={{ opacity: 0, y: 10 }}
@@ -108,16 +177,26 @@ export default function Enroll() {
           transition={{ delay: 0.3 }}
           className="text-slate-500 max-w-md mb-8"
         >
-          Your enrollment application for <strong>{studentInfo.firstName} {studentInfo.lastName}</strong> has been successfully submitted to CdM.
+          {enrollmentStatus === 'Validating' 
+            ? `Your information for ${studentInfo.firstName} ${studentInfo.lastName} has been updated.`
+            : `Your enrollment application for ${studentInfo.firstName} ${studentInfo.lastName} has been successfully submitted to CdM.`
+          }
+          {isAdmin ? " The record has been modified in the system." : " Your status is 'Validating'. Please wait for the registrar's approval."}
         </motion.p>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="flex gap-4"
+          className="flex justify-center"
         >
-          <Button onClick={handleReset} variant="primary" size="lg">View Student Records</Button>
-          <Button onClick={() => setIsSuccess(false)} variant="outline" size="lg">Enroll Another</Button>
+          <Button 
+            onClick={handleReset} 
+            variant="primary" 
+            size="lg" 
+            className="px-10"
+          >
+            {isAdmin ? 'View Student Records' : 'Back to Dashboard'}
+          </Button>
         </motion.div>
       </div>
     );
@@ -176,6 +255,17 @@ export default function Enroll() {
           transition={{ duration: 0.3 }}
         >
           <Card glass className="border-none shadow-xl shadow-slate-200/30">
+            {isReadOnly && (
+              <div className="bg-amber-50 border-b border-amber-100 p-4 flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                  <Info className="h-4 w-4" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-bold text-amber-900">Enrollment Finalized</p>
+                  <p className="text-xs text-amber-700">Your enrollment has been approved. Information is now read-only. Contact the Registrar for any changes.</p>
+                </div>
+              </div>
+            )}
             <CardContent className="p-10">
               {/* Step 1: Student Information */}
               {currentStep === 1 && (
@@ -193,18 +283,21 @@ export default function Enroll() {
                       placeholder="e.g. Juan" 
                       value={studentInfo.firstName}
                       onChange={(e) => setStudentInfo({ ...studentInfo, firstName: e.target.value })}
+                      disabled={isReadOnly}
                     />
                     <Input 
                       label="Middle Name" 
                       placeholder="e.g. Dela Cruz" 
                       value={studentInfo.middleName}
                       onChange={(e) => setStudentInfo({ ...studentInfo, middleName: e.target.value })}
+                      disabled={isReadOnly}
                     />
                     <Input 
                       label="Last Name" 
                       placeholder="e.g. Ramos" 
                       value={studentInfo.lastName}
                       onChange={(e) => setStudentInfo({ ...studentInfo, lastName: e.target.value })}
+                      disabled={isReadOnly}
                     />
                   </div>
 
@@ -214,13 +307,15 @@ export default function Enroll() {
                       placeholder="20" 
                       value={studentInfo.age}
                       onChange={(e) => setStudentInfo({ ...studentInfo, age: e.target.value })}
+                      disabled={isReadOnly}
                     />
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                       <label className="text-sm font-medium text-slate-700 ml-1">Gender</label>
                       <select 
-                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
                         value={studentInfo.gender}
                         onChange={(e) => setStudentInfo({ ...studentInfo, gender: e.target.value })}
+                        disabled={isReadOnly}
                       >
                         <option>Male</option>
                         <option>Female</option>
@@ -232,13 +327,15 @@ export default function Enroll() {
                       type="date"
                       value={studentInfo.birthday}
                       onChange={(e) => setStudentInfo({ ...studentInfo, birthday: e.target.value })}
+                      disabled={isReadOnly}
                     />
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 text-left">
                       <label className="text-sm font-medium text-slate-700 ml-1">Year Level</label>
                       <select 
-                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
                         value={studentInfo.yearLevel}
                         onChange={(e) => setStudentInfo({ ...studentInfo, yearLevel: e.target.value as YearLevel })}
+                        disabled={isReadOnly}
                       >
                         {YEAR_LEVELS.map(lvl => <option key={lvl}>{lvl}</option>)}
                       </select>
@@ -254,16 +351,18 @@ export default function Enroll() {
                         placeholder="Complete residential address" 
                         value={studentInfo.address}
                         onChange={(e) => setStudentInfo({ ...studentInfo, address: e.target.value })}
+                        disabled={isReadOnly}
                       />
                     </div>
                     <div className="relative">
                       <IdCard className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input 
-                        label="Student ID (if available)" 
+                        label={isAdmin ? "Student ID" : "Student ID (Assigned by Registrar)"} 
                         className="pl-10" 
-                        placeholder="20XX-XXXXX" 
+                        placeholder={isAdmin ? "20XX-XXXXX" : "To be assigned"} 
                         value={studentInfo.studentId}
                         onChange={(e) => setStudentInfo({ ...studentInfo, studentId: e.target.value })}
+                        disabled={!isAdmin || isReadOnly}
                       />
                     </div>
                   </div>
@@ -277,6 +376,7 @@ export default function Enroll() {
                         placeholder="09XX XXX XXXX" 
                         value={studentInfo.contactNumber}
                         onChange={(e) => setStudentInfo({ ...studentInfo, contactNumber: e.target.value })}
+                        disabled={isReadOnly}
                       />
                     </div>
                     <div className="relative">
@@ -287,6 +387,7 @@ export default function Enroll() {
                         placeholder="example@email.com" 
                         value={studentInfo.email}
                         onChange={(e) => setStudentInfo({ ...studentInfo, email: e.target.value })}
+                        disabled={isReadOnly}
                       />
                     </div>
                   </div>
@@ -307,12 +408,14 @@ export default function Enroll() {
                     {ENROLLMENT_TYPES.map((type) => (
                       <button
                         key={type.id}
+                        disabled={isReadOnly}
                         onClick={() => setEnrollmentType(type.id as EnrollmentType)}
                         className={cn(
                           "relative p-6 rounded-2xl border-2 text-left transition-all duration-300 group",
+                          isReadOnly && "cursor-not-allowed opacity-80",
                           enrollmentType === type.id 
                             ? "border-blue-600 bg-blue-50/50 shadow-lg shadow-blue-600/10" 
-                            : "border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                            : "border-slate-100 bg-slate-50" + (isReadOnly ? "" : " hover:border-slate-300 hover:bg-white")
                         )}
                       >
                         <div className={cn(
@@ -336,6 +439,7 @@ export default function Enroll() {
                       </button>
                     ))}
                   </div>
+
 
                   <Card className="bg-blue-900 text-white p-6 border-none">
                     <div className="flex gap-4">
@@ -362,12 +466,14 @@ export default function Enroll() {
                       {COURSES.map((course) => (
                         <button
                           key={course.id}
+                          disabled={isReadOnly}
                           onClick={() => setSelectedCourse(course.id)}
                           className={cn(
                             "p-4 rounded-xl border-2 text-left transition-all",
+                            isReadOnly && "cursor-not-allowed opacity-80",
                             selectedCourse === course.id 
                               ? "border-blue-600 bg-blue-50/30 ring-4 ring-blue-500/10" 
-                              : "border-slate-100 hover:border-slate-200"
+                              : "border-slate-100" + (isReadOnly ? "" : " hover:border-slate-200")
                           )}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -391,15 +497,15 @@ export default function Enroll() {
                       </div>
                       
                       <div className="space-y-4">
-                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">Student Profile</p>
-                        <div>
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest text-left">Student Profile</p>
+                        <div className="text-left">
                           <p className="text-2xl font-black text-slate-900">{studentInfo.firstName} {studentInfo.lastName}</p>
                           <p className="text-sm text-slate-500 font-medium">{studentInfo.email} • {studentInfo.contactNumber}</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-4 text-left">
                           <div>
                             <p className="text-[10px] uppercase font-bold text-slate-400">Student ID</p>
-                            <p className="text-sm font-bold text-slate-700">{studentInfo.studentId || 'New Student'}</p>
+                            <p className="text-sm font-bold text-slate-700">{studentInfo.studentId || (enrollmentStatus === 'Validating' ? 'Pending' : 'New Student')}</p>
                           </div>
                           <div>
                             <p className="text-[10px] uppercase font-bold text-slate-400">Year Level</p>
@@ -409,7 +515,7 @@ export default function Enroll() {
                       </div>
 
                       <div className="space-y-4">
-                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">Enrollment Details</p>
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest text-left">Enrollment Details</p>
                         <div className="p-4 bg-white rounded-2xl shadow-sm space-y-3">
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-slate-500">Course</span>
@@ -453,12 +559,19 @@ export default function Enroll() {
                   <Button
                     onClick={handleSubmit}
                     isLoading={isSubmitting}
-                    className="gap-2 min-w-[160px] bg-emerald-600 hover:bg-emerald-700 border-none shadow-emerald-500/20"
+                    disabled={isReadOnly}
+                    className={cn(
+                      "gap-2 min-w-[160px] border-none",
+                      isReadOnly 
+                        ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
+                        : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 text-white"
+                    )}
                   >
-                    Confirm & Enroll
+                    {isReadOnly ? 'Form Finalized' : (enrollmentStatus === 'Validating' ? 'Update Info' : 'Confirm & Enroll')}
                   </Button>
                 )}
               </div>
+
             </CardContent>
           </Card>
         </motion.div>
