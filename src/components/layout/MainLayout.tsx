@@ -32,13 +32,17 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
       
       {/* PC Sidebar */}
       <div className="no-print">
-        <Sidebar user={user} onLogout={onLogout} />
+        <Sidebar 
+          user={user} 
+          onLogout={onLogout} 
+          className="fixed left-0 top-0 bottom-0 w-[240px] z-40 hidden lg:flex"
+        />
       </div>
 
       {/* Mobile Sidebar */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <div className="no-print">
+          <div className="no-print flex lg:hidden">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -53,7 +57,12 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
               className="fixed left-0 top-0 bottom-0 w-64 bg-slate-950 z-50 lg:hidden flex flex-col"
             >
-              <Sidebar user={user} onLogout={onLogout} />
+              <Sidebar 
+                user={user} 
+                onLogout={onLogout} 
+                onItemClick={() => setIsMobileMenuOpen(false)}
+                className="border-none"
+              />
               <button 
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="absolute top-4 right-[-48px] bg-slate-950 text-white p-2 rounded-r-xl"

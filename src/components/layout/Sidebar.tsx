@@ -8,9 +8,11 @@ import { User } from '@/src/types';
 interface SidebarProps {
   user: User | null;
   onLogout: () => void;
+  onItemClick?: () => void;
+  className?: string;
 }
 
-export function Sidebar({ user, onLogout }: SidebarProps) {
+export function Sidebar({ user, onLogout, onItemClick, className }: SidebarProps) {
   const navigate = useNavigate();
 
   const filteredItems = MENU_ITEMS.filter(item => 
@@ -18,7 +20,10 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
   );
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-[240px] bg-[#0f172a] text-slate-400 border-r border-slate-800 z-40 hidden lg:flex flex-col">
+    <aside className={cn(
+      "bg-[#0f172a] text-slate-400 border-r border-slate-800 flex flex-col h-full",
+      className
+    )}>
       <div className="p-6 flex items-center gap-3 mb-10">
         <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-lg">
           CdM
@@ -36,6 +41,7 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
+            onClick={onItemClick}
             className={({ isActive }) => cn(
               "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative",
               isActive 
