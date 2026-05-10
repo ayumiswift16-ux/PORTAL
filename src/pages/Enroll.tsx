@@ -232,8 +232,8 @@ export default function Enroll() {
   if (enrollmentStatus === 'Enrolled' && enrollmentRecord?.registrationForm) {
     const rf = enrollmentRecord.registrationForm;
     return (
-      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 print:max-w-none print:m-0 print:p-0">
-        <div className="flex items-center justify-between print:hidden">
+      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 print:max-w-none print:m-0 print:p-0 print:space-y-0">
+        <div className="flex items-center justify-between no-print">
           <div>
             <h2 className="text-3xl font-black text-slate-900">Official Registration Form</h2>
             <p className="text-slate-500">Your enrollment has been finalized. Download or print your official form below.</p>
@@ -244,18 +244,18 @@ export default function Enroll() {
           </Button>
         </div>
 
-        <Card className="bg-white border-none shadow-2xl relative overflow-hidden print:shadow-none print:p-0 p-1 md:p-4 print:border-none">
-          <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6">
+        <Card className="bg-white border-none shadow-2xl relative overflow-visible print:shadow-none print:p-0 p-1 md:p-4 print:border-none print:overflow-visible">
+          <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6 print:m-0 print:border-2">
             {/* Form Header */}
-            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6">
+            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6 print:flex-row print:text-left print:gap-4 print:items-start">
               <img src={`${import.meta.env.BASE_URL}cdm-logo.png`} alt="Logo" className="h-24 w-24 object-contain" />
-              <div className="flex-1 text-center md:text-left">
+              <div className="flex-1 text-center md:text-left print:text-left">
                 <h1 className="text-2xl font-black text-[#064e3b] tracking-tight leading-none">COLEGIO DE MONTALBAN</h1>
                 <p className="text-sm font-bold text-slate-700 mt-1 italic">Kasiglahan Village, San Jose, Rodriguez, Rizal</p>
                 <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter mt-1">OFFICE OF THE REGISTRAR</h2>
                 <p className="text-[10px] text-slate-500 font-bold mt-1">(02) 8395-9731 | registrar@pnm.edu.ph | www.pnm.edu.ph</p>
               </div>
-              <div className="text-center md:text-right flex flex-col items-center md:items-end">
+              <div className="text-center md:text-right flex flex-col items-center md:items-end print:text-right print:items-end print:flex-1">
                 <h3 className="text-2xl font-black text-slate-800 leading-tight">Official<br/>Registration<br/>& COE</h3>
                 <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Certificate of Enrollment</p>
               </div>
