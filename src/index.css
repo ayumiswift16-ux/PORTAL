@@ -34,6 +34,11 @@
 }
 
 @media print {
+  @page {
+    size: auto;
+    margin: 5mm 10mm;
+  }
+
   .no-print, 
   nav, 
   aside, 
@@ -47,6 +52,7 @@
     background: white !important;
     padding: 0 !important;
     margin: 0 !important;
+    font-size: 10pt;
   }
 
   .print-only {
@@ -56,5 +62,11 @@
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /* Force content to fit */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
   }
 }

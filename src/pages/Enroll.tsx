@@ -232,7 +232,7 @@ export default function Enroll() {
   if (enrollmentStatus === 'Enrolled' && enrollmentRecord?.registrationForm) {
     const rf = enrollmentRecord.registrationForm;
     return (
-      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 print:max-w-none print:m-0 print:p-0 print:space-y-0">
+      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 print:max-w-none print:m-0 print:p-0 print:space-y-2">
         <div className="flex items-center justify-between no-print">
           <div>
             <h2 className="text-3xl font-black text-slate-900">Official Registration Form</h2>
@@ -245,9 +245,9 @@ export default function Enroll() {
         </div>
 
         <Card className="bg-white border-none shadow-2xl relative overflow-visible print:shadow-none print:p-0 p-1 md:p-4 print:border-none print:overflow-visible">
-          <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6 print:m-0 print:border-2">
+          <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6 print:m-0 print:border-2 print:p-4 print:space-y-3">
             {/* Form Header */}
-            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6 print:flex-row print:text-left print:gap-4 print:items-center">
+            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6 print:flex-row print:text-left print:gap-4 print:items-center print:pb-3 print:mb-2">
               <img src={`${import.meta.env.BASE_URL}cdm-logo.png`} alt="Logo" className="h-24 w-24 object-contain" />
               <div className="flex-1 text-center md:text-left print:text-left">
                 <h1 className="text-2xl font-black text-[#064e3b] tracking-tight leading-none">COLEGIO DE MONTALBAN</h1>
@@ -262,83 +262,83 @@ export default function Enroll() {
             </div>
 
             {/* Academic Year Box */}
-            <div className="border-2 border-[#064e3b] p-3 text-left">
-              <p className="text-[11px] font-black text-slate-900">
+            <div className="border-2 border-[#064e3b] p-3 text-left print:p-1.5">
+              <p className="text-[11px] font-black text-slate-900 print:text-[10px]">
                 Academic Year/Term: <span className="font-bold">{rf.academicYear}</span> / Semester: <span className="font-bold">{rf.semester}</span>
               </p>
             </div>
 
             {/* Student Info Table */}
-            <div className="border-2 border-[#064e3b] overflow-hidden">
-              <div className="grid grid-cols-12 border-b-2 border-[#064e3b]">
-                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Student ID</p>
-                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.studentId || enrollmentRecord.studentInfo.studentId}</p>
+            <div className="border-2 border-[#064e3b] overflow-hidden print:border">
+              <div className="grid grid-cols-12 border-b-2 border-[#064e3b] print:border-b">
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2 print:p-1 print:border-r">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Student ID</p>
+                  <p className="text-xs font-bold text-slate-900 print:text-[10px]">{enrollmentRecord.studentId || enrollmentRecord.studentInfo.studentId}</p>
                 </div>
-                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Program</p>
-                  <p className="text-xs font-bold text-slate-900">{rf.program}</p>
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2 print:p-1 print:border-r">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Program</p>
+                  <p className="text-xs font-bold text-slate-900 print:text-[10px]">{rf.program}</p>
                 </div>
-                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Student Type</p>
-                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.type}</p>
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2 print:p-1 print:border-r">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Student Type</p>
+                  <p className="text-xs font-bold text-slate-900 print:text-[10px]">{enrollmentRecord.type}</p>
                 </div>
-                <div className="col-span-3 bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Year Level</p>
-                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.yearLevel}</p>
+                <div className="col-span-3 bg-slate-50/50 p-2 print:p-1">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Year Level</p>
+                  <p className="text-xs font-bold text-slate-900 print:text-[10px]">{enrollmentRecord.yearLevel}</p>
                 </div>
               </div>
               <div className="grid grid-cols-12">
-                <div className="col-span-6 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Name</p>
-                  <p className="text-xs font-bold text-slate-900 uppercase">{studentInfo.lastName}, {studentInfo.firstName} {studentInfo.middleName}</p>
+                <div className="col-span-6 border-r-2 border-[#064e3b] bg-slate-50/50 p-2 print:p-1 print:border-r">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Name</p>
+                  <p className="text-xs font-bold text-slate-900 uppercase print:text-[10px]">{studentInfo.lastName}, {studentInfo.firstName} {studentInfo.middleName}</p>
                 </div>
-                <div className="col-span-6 bg-slate-50/50 p-2">
-                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Institute</p>
-                  <p className="text-xs font-bold text-slate-900 uppercase">{rf.institute}</p>
+                <div className="col-span-6 bg-slate-50/50 p-2 print:p-1">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider print:text-[8px]">Institute</p>
+                  <p className="text-xs font-bold text-slate-900 uppercase print:text-[10px]">{rf.institute}</p>
                 </div>
               </div>
             </div>
 
             {/* Courses Table */}
-            <div className="border-2 border-[#064e3b] overflow-hidden">
-              <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] text-center">
-                <p className="text-[11px] font-black uppercase tracking-widest text-[#064e3b]">Courses Enrolled</p>
+            <div className="border-2 border-[#064e3b] overflow-hidden print:border">
+              <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] text-center print:bg-white print:p-1 print:border-b">
+                <p className="text-[11px] font-black uppercase tracking-widest text-[#064e3b] print:text-[9px]">Courses Enrolled</p>
               </div>
-              <table className="w-full text-right text-[10px]">
-                <thead className="border-b-2 border-[#064e3b]">
+              <table className="w-full text-right text-[10px] print:text-[8px]">
+                <thead className="border-b-2 border-[#064e3b] print:border-b">
                   <tr className="font-black text-slate-700">
-                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b] w-24">Code</th>
-                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b]">Description</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">Section</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Lec</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Lab</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">CompLab</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Units</th>
-                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">Rate</th>
-                    <th className="px-3 py-2 w-24">Course Fee</th>
+                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b] w-24 print:px-1.5 print:py-1 print:border-r print:w-auto">Code</th>
+                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b] print:px-1.5 print:py-1 print:border-r">Description</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center print:px-1 print:py-1 print:border-r print:w-12">Section</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center print:px-1 print:py-1 print:border-r print:w-8">Lec</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center print:px-1 print:py-1 print:border-r print:w-8">Lab</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center print:px-1 print:py-1 print:border-r print:w-12">CompLab</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center print:px-1 print:py-1 print:border-r print:w-8">Units</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center print:px-1 print:py-1 print:border-r print:w-12">Rate</th>
+                    <th className="px-3 py-2 w-24 print:px-1.5 print:py-1 print:w-auto">Course Fee</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y-2 divide-slate-100">
+                <tbody className="divide-y-2 divide-slate-100 print:divide-y">
                   {rf.courses.map((course, i) => (
                     <tr key={i} className="font-bold text-slate-700">
-                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] uppercase">{course.code}</td>
-                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] truncate uppercase">{course.description}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center uppercase">{course.section}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.lec}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.lab}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.compLab}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.units}</td>
-                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.rate}</td>
-                      <td className="px-3 py-2 font-black">₱{course.fee.toLocaleString()}.00</td>
+                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] uppercase print:px-1.5 print:py-1 print:border-r">{course.code}</td>
+                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] truncate uppercase print:px-1.5 print:py-1 print:border-r">{course.description}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center uppercase print:px-1 print:py-1 print:border-r">{course.section}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center print:px-1 print:py-1 print:border-r">{course.lec}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center print:px-1 print:py-1 print:border-r">{course.lab}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center print:px-1 print:py-1 print:border-r">{course.compLab}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center print:px-1 print:py-1 print:border-r">{course.units}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center print:px-1 print:py-1 print:border-r">{course.rate}</td>
+                      <td className="px-3 py-2 font-black print:px-1.5 print:py-1">₱{course.fee.toLocaleString()}.00</td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="border-t-2 border-[#064e3b] bg-slate-50 font-black text-slate-900">
+                <tfoot className="border-t-2 border-[#064e3b] bg-slate-50 font-black text-slate-900 print:border-t print:bg-white print:text-[8px]">
                   <tr>
-                    <td colSpan={6} className="px-3 py-2 text-right uppercase tracking-[0.2em] border-r-2 border-[#064e3b]">Total Units</td>
-                    <td className="px-2 py-2 text-center border-r-2 border-[#064e3b]">{rf.courses.reduce((acc, c) => acc + c.units, 0)}</td>
-                    <td colSpan={2} className="px-3 py-2"></td>
+                    <td colSpan={6} className="px-3 py-2 text-right uppercase tracking-[0.2em] border-r-2 border-[#064e3b] print:px-1.5 print:py-1 print:border-r">Total Units</td>
+                    <td className="px-2 py-2 text-center border-r-2 border-[#064e3b] print:px-1 print:py-1 print:border-r">{rf.courses.reduce((acc, c) => acc + c.units, 0)}</td>
+                    <td colSpan={2} className="px-3 py-2 print:px-1.5 print:py-1"></td>
                   </tr>
                 </tfoot>
               </table>
@@ -350,7 +350,7 @@ export default function Enroll() {
                 <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] print:bg-slate-50">
                   <p className="text-[10px] font-black uppercase text-[#064e3b]">Assessed Fees</p>
                 </div>
-                <div className="divide-y-2 divide-slate-100 print:divide-y-2">
+                <div className="divide-y-2 divide-slate-100 print:divide-y">
                   {[
                     { label: 'Tuition Fee', val: rf.assessedFees.tuition },
                     { label: 'Admission Fee', val: rf.assessedFees.admission },
@@ -367,12 +367,12 @@ export default function Enroll() {
                     { label: 'School ID Fee', val: rf.assessedFees.schoolId },
                     { label: 'Student Handbook Fee', val: rf.assessedFees.handbook },
                   ].map((fee, i) => (
-                    <div key={i} className="flex justify-between text-[10px] px-3 py-1.5 font-bold text-slate-700">
+                    <div key={i} className="flex justify-between text-[10px] px-3 py-1.5 font-bold text-slate-700 print:p-1 print:text-[8px]">
                       <span className="uppercase">{fee.label}</span>
                       <span>₱ {fee.val.toLocaleString()}.00</span>
                     </div>
                   ))}
-                  <div className="flex justify-between text-xs px-3 py-2 font-black bg-[#064e3b] text-white">
+                  <div className="flex justify-between text-xs px-3 py-2 font-black bg-[#064e3b] text-white print:p-1.5 print:text-[10px]">
                     <span className="uppercase tracking-widest">Total Amount</span>
                     <span>₱ {rf.assessedFees.total.toLocaleString()}.00</span>
                   </div>
@@ -428,7 +428,7 @@ export default function Enroll() {
             </div>
 
             {/* Red Note */}
-            <p className="mt-8 text-[9px] text-red-600 font-bold leading-relaxed text-center px-12 italic uppercase tracking-wider">
+            <p className="mt-8 text-[9px] text-red-600 font-bold leading-relaxed text-center px-12 italic uppercase tracking-wider print:mt-4 print:px-6">
               NOTE: This document is not valid without the student's signature, registrar's signature, and official college seal.
             </p>
           </div>
