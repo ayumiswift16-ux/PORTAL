@@ -31,7 +31,7 @@ import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord, User as UserType, SystemSettings } from '../types';
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '@/src/lib/firebase';
-import { doc, getDoc, collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 const STATS = [
   { label: 'Total Students', value: '1,284', icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '+12.5%' },
@@ -40,12 +40,12 @@ const STATS = [
   { label: 'Pending Apps', value: '86', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '-2.4%' },
 ];
 
-export default function Dashboard() {
+interface DashboardProps {
+  user: UserType | null;
+}
+
+export default function Dashboard({ user }: DashboardProps) {
   const navigate = useNavigate();
-  const [user] = useState<UserType | null>(() => {
-    const saved = localStorage.getItem('cdm_user');
-    return saved ? JSON.parse(saved) : null;
-  });
   const isAdmin = user?.role === 'admin';
 
   const [stats, setStats] = useState(STATS);
@@ -54,46 +54,50 @@ export default function Dashboard() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      if (!user) return;
-      
-      try {
-        // Fetch Settings
-        const settingsSnap = await getDoc(doc(db, 'settings', 'enrollment'));
-        if (settingsSnap.exists()) {
-          setSettings(settingsSnap.data() as SystemSettings);
-        }
+    if (!user) return;
 
-        if (isAdmin) {
-          const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
-          const querySnapshot = await getDocs(q);
-          const allDocs = querySnapshot.docs.map(doc => doc.data() as EnrollmentRecord);
-          
-          const total = allDocs.length;
-          const approved = allDocs.filter(d => d.status === 'Enrolled').length;
-          const pending = allDocs.filter(d => d.status === 'Validating').length;
-          const active = allDocs.filter(d => d.status === 'Approved' || d.status === 'Enrolled').length;
-
-          setStats([
-            { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '--' },
-            { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: '--' },
-            { label: 'Approved', value: approved.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '--' },
-            { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
-          ]);
-          setRecentEnrollments(allDocs.slice(0, 5));
-        } else {
-          const docRef = doc(db, 'enrollments', user.username);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            setEnrollmentRecord(docSnap.data() as EnrollmentRecord);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
+    // Fetch Settings
+    const settingsUnsub = onSnapshot(doc(db, 'settings', 'enrollment'), (snap) => {
+      if (snap.exists()) {
+        setSettings(snap.data() as SystemSettings);
       }
-    };
+    });
 
-    fetchData();
+    let dataUnsub = () => {};
+
+    if (isAdmin) {
+      const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
+      dataUnsub = onSnapshot(q, (querySnapshot) => {
+        const allDocs = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as EnrollmentRecord);
+        
+        const total = allDocs.length;
+        const approved = allDocs.filter(d => d.status === 'Enrolled').length;
+        const pending = allDocs.filter(d => d.status === 'Validating').length;
+        const active = allDocs.filter(d => d.status === 'Approved' || d.status === 'Enrolled').length;
+
+        setStats([
+          { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '--' },
+          { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: '--' },
+          { label: 'Approved', value: approved.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '--' },
+          { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
+        ]);
+        setRecentEnrollments(allDocs.slice(0, 5));
+      });
+    } else {
+      // For students, the doc ID for enrollment is their username (userId)
+      dataUnsub = onSnapshot(doc(db, 'enrollments', user.username), (docSnap) => {
+        if (docSnap.exists()) {
+          setEnrollmentRecord({ ...docSnap.data(), id: docSnap.id } as EnrollmentRecord);
+        } else {
+          setEnrollmentRecord(null);
+        }
+      });
+    }
+
+    return () => {
+      settingsUnsub();
+      dataUnsub();
+    };
   }, [isAdmin, user]);
 
   const enrollmentStatus = useMemo(() => {
@@ -107,7 +111,7 @@ export default function Dashboard() {
     return 'Active';
   }, [settings]);
 
-  const studentStatus = enrollmentRecord?.status || 'Validating';
+  const studentStatus = enrollmentRecord?.status || 'Not Enrolled';
 
   return (
     <div className="space-y-8 text-left">

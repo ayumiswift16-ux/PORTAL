@@ -10,14 +10,23 @@ interface SidebarProps {
   onLogout: () => void;
   onItemClick?: () => void;
   className?: string;
+  isEnrolled?: boolean;
 }
 
-export function Sidebar({ user, onLogout, onItemClick, className }: SidebarProps) {
+export function Sidebar({ user, onLogout, onItemClick, className, isEnrolled }: SidebarProps) {
   const navigate = useNavigate();
 
-  const filteredItems = MENU_ITEMS.filter(item => 
-    !item.roles || (user && item.roles.includes(user.role))
-  );
+  const filteredItems = MENU_ITEMS.filter(item => {
+    const hasRole = !item.roles || (user && item.roles.includes(user.role));
+    if (!hasRole) return false;
+    
+    // Students must be enrolled to see items marked with requiresEnrollment
+    if (user?.role === 'student' && (item as any).requiresEnrollment && !isEnrolled) {
+      return false;
+    }
+    
+    return true;
+  });
 
   return (
     <aside className={cn(
@@ -25,9 +34,11 @@ export function Sidebar({ user, onLogout, onItemClick, className }: SidebarProps
       className
     )}>
       <div className="p-6 flex items-center gap-3 mb-10">
-        <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-lg">
-          CdM
-        </div>
+        <img 
+          src={`${import.meta.env.BASE_URL}cdm-logo.png`} 
+          alt="CdM Logo" 
+          className="h-10 w-10 object-contain drop-shadow-md" 
+        />
         <div className="flex flex-col text-left">
           <span className="text-white font-bold tracking-tight text-base leading-tight">Colegio de</span>
           <span className="text-sm font-normal text-slate-400">Montalban</span>

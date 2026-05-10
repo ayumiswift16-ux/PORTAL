@@ -17,33 +17,55 @@ import Scheduling from './pages/Scheduling';
 import Steps from './pages/Steps';
 import { MainLayout } from './components/layout/MainLayout';
 import { PageTransition } from './components/layout/PageTransition';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let unsubscribeUserDoc: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         const isAdmin = firebaseUser.email === 'davevenzon789@gmail.com' || 
                         !!firebaseUser.email?.match(/^admin[1-5]@school\.portal$/);
-        const appUser: User = {
+        
+        const initialUser: User = {
           username: firebaseUser.uid,
+          email: firebaseUser.email || '',
           name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
           role: isAdmin ? 'admin' : 'student'
         };
-        setUser(appUser);
-        localStorage.setItem('cdm_user', JSON.stringify(appUser));
+        
+        setUser(initialUser);
+        localStorage.setItem('cdm_user', JSON.stringify(initialUser));
+
+        // Sync with users collection for extra data like profile picture
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        unsubscribeUserDoc = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const extraData = docSnap.data();
+            setUser(prev => prev ? { ...prev, ...extraData } : null);
+          } else {
+            // Create the doc if it doesn't exist
+            setDoc(userDocRef, initialUser);
+          }
+        });
       } else {
+        if (unsubscribeUserDoc) unsubscribeUserDoc();
         setUser(null);
         localStorage.removeItem('cdm_user');
       }
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubscribeUserDoc) unsubscribeUserDoc();
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -78,7 +100,7 @@ export default function App() {
             user ? (
               <MainLayout user={user} onLogout={handleLogout}>
                 <Routes>
-                  <Route path="/dashboard" element={<PageTransition><Dashboard /></PageTransition>} />
+                  <Route path="/dashboard" element={<PageTransition><Dashboard user={user} /></PageTransition>} />
                   <Route path="/enroll" element={<PageTransition><Enroll /></PageTransition>} />
                   <Route 
                     path="/records" 
@@ -95,7 +117,7 @@ export default function App() {
                     path="/settings" 
                     element={
                       user.role === 'admin' 
-                        ? <PageTransition><Settings /></PageTransition> 
+                        ? <PageTransition><Settings user={user} /></PageTransition> 
                         : <Navigate to="/dashboard" replace />
                     } 
                   />

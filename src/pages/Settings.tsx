@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { 
-  User, 
+  User as UserIcon, 
   School, 
   Bell, 
   Moon, 
@@ -13,20 +13,36 @@ import {
   GraduationCap,
   Calendar,
   Clock,
-  Info
+  Info,
+  Check,
+  Save,
+  User
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 import toast from 'react-hot-toast';
 import { db } from '@/src/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { SystemSettings } from '@/src/types';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { SystemSettings, User as UserType } from '@/src/types';
+import { cn } from '@/src/utils/cn';
 
-export default function Settings() {
-  const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+interface SettingsProps {
+  user: UserType;
+}
+
+type TabType = 'General' | 'Enrollment Schedule' | 'Account Security' | 'Notifications';
+
+export default function Settings({ user }: SettingsProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('General');
   const [loading, setLoading] = useState(true);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: user.name,
+    email: user.email
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [enrollmentSettings, setEnrollmentSettings] = useState<SystemSettings>({
     academicYear: '2025-2026',
     semester: '1',
@@ -51,13 +67,29 @@ export default function Settings() {
     fetchSettings();
   }, []);
 
-  const handleSave = async () => {
+  const handleSaveSettings = async () => {
     try {
       await setDoc(doc(db, 'settings', 'enrollment'), enrollmentSettings);
       toast.success('Settings saved successfully!');
     } catch (error) {
       console.error('Error saving settings:', error);
       toast.error('Failed to save settings');
+    }
+  };
+
+  const handleUpdateProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+    try {
+      await updateDoc(doc(db, 'users', user.username), {
+        name: profileData.name
+      });
+      toast.success("Profile updated successfully!");
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast.error("Failed to update profile");
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -70,141 +102,337 @@ export default function Settings() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+    <div className="max-w-5xl mx-auto space-y-8 pb-12">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-900 tracking-tight">System Settings</h2>
-          <p className="text-slate-500 mt-1">Manage portal configuration and administrative preferences.</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-none">System Settings</h2>
+          <p className="text-slate-500 mt-2 font-medium">Manage portal configuration and administrative preferences.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Profile Navigation */}
-        <div className="space-y-4">
-          <Card glass className="border-none shadow-sm overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Navigation Sidebar */}
+        <div className="lg:col-span-4 space-y-4">
+          <Card glass className="border-none shadow-sm overflow-hidden rounded-[2rem]">
             <CardContent className="p-0">
-              <div className="p-6 text-center border-b border-slate-200/50">
-                <div className="relative inline-block mb-4">
-                  <div className="h-24 w-24 rounded-3xl bg-blue-600 flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-blue-600/20">
-                    AD
+              <div className="p-8 text-center border-b border-slate-100 bg-slate-50/50">
+                <div className="relative inline-block mb-6">
+                  <div className={cn(
+                    "h-28 w-28 rounded-[2rem] flex items-center justify-center text-4xl font-black shadow-2xl relative overflow-hidden group transition-transform hover:scale-105",
+                    user.profilePicture ? "bg-white" : "bg-blue-600 shadow-blue-600/20 text-white"
+                  )}>
+                    {user.profilePicture ? (
+                      <img src={user.profilePicture} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      user.name?.[0]
+                    )}
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Camera className="h-8 w-8 text-white" />
+                    </button>
                   </div>
-                  <button className="absolute bottom-0 right-0 p-2 bg-white rounded-xl shadow-md border border-slate-100 text-slate-600 hover:text-blue-600 transition-colors">
-                    <Camera className="h-4 w-4" />
-                  </button>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = async () => {
+                        const base64 = reader.result as string;
+                        try {
+                          await updateDoc(doc(db, 'users', user.username), { profilePicture: base64 });
+                          toast.success("Profile picture updated!");
+                        } catch (err) {
+                          toast.error("Failed to update picture");
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
                 </div>
-                <h3 className="font-bold text-lg text-slate-900">Administrator</h3>
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-1">Main Office</p>
+                <h3 className="font-bold text-xl text-slate-900 tracking-tight">{user.name}</h3>
+                <p className="text-[10px] text-blue-600 font-bold uppercase tracking-[0.2em] mt-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 inline-block">
+                  {user.role === 'admin' ? 'Registrar' : 'Student'}
+                </p>
               </div>
               <div className="p-4 space-y-1">
                 {[
-                  { label: 'General', icon: Smartphone, active: true },
-                  { label: 'Enrollment Schedule', icon: Calendar, active: false },
-                  { label: 'Account Security', icon: Shield, active: false },
-                  { label: 'Notifications', icon: Bell, active: false },
+                  { label: 'General', icon: Smartphone },
+                  { label: 'Enrollment Schedule', icon: Calendar },
+                  { label: 'Account Security', icon: Shield },
+                  { label: 'Notifications', icon: Bell },
                 ].map((item) => (
                   <button
                     key={item.label}
-                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                      item.active ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'
-                    }`}
+                    onClick={() => setActiveTab(item.label as TabType)}
+                    className={cn(
+                      "flex items-center gap-4 w-full px-5 py-4 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all",
+                      activeTab === item.label ? "bg-blue-600 text-white shadow-xl shadow-blue-600/20" : "text-slate-500 hover:bg-slate-50"
+                    )}
                   >
-                    <item.icon className="h-4 w-4" />
+                    <item.icon className={cn("h-4 w-4", activeTab === item.label ? "text-white" : "text-slate-400")} />
                     {item.label}
                   </button>
                 ))}
               </div>
             </CardContent>
           </Card>
+
+          <Card glass className="border-none shadow-sm rounded-2xl overflow-hidden">
+            <div className="p-6 bg-slate-900 text-white">
+              <div className="flex items-center gap-3 mb-4">
+                <Shield className="h-5 w-5 text-blue-400" />
+                <h4 className="text-xs font-bold uppercase tracking-widest">Portal Access</h4>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6 font-medium">
+                You are currently signed in with administrator privileges. Ensure all sensitive configurations are verified.
+              </p>
+              <Button 
+                variant="outline" 
+                className="w-full border-slate-700 hover:bg-white/10 text-white rounded-xl h-12 text-[10px] font-bold uppercase tracking-widest"
+              >
+                Sign Out Everywhere
+              </Button>
+            </div>
+          </Card>
         </div>
 
-        {/* Settings Forms */}
-        <div className="md:col-span-2 space-y-8">
-          <Card glass className="border-none shadow-sm">
-            <CardHeader className="border-b border-slate-50">
-              <div className="flex items-center gap-2 mb-1">
-                <Calendar className="h-5 w-5 text-blue-600" />
-                <CardTitle>Enrollment Period</CardTitle>
-              </div>
-              <CardDescription>Configure when students can access the enrollment portal.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-8 space-y-6 text-left">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Input 
-                  label="Academic Year" 
-                  value={enrollmentSettings.academicYear} 
-                  onChange={(e) => setEnrollmentSettings({...enrollmentSettings, academicYear: e.target.value})}
-                />
-                <Input 
-                  label="Semester" 
-                  value={enrollmentSettings.semester} 
-                  onChange={(e) => setEnrollmentSettings({...enrollmentSettings, semester: e.target.value})}
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Enrollment Start Date & Time</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <input 
-                      type="datetime-local" 
-                      className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium"
-                      value={enrollmentSettings.enrollmentStartDate}
-                      onChange={(e) => setEnrollmentSettings({...enrollmentSettings, enrollmentStartDate: e.target.value})}
+        {/* Content Area */}
+        <div className="lg:col-span-8 flex flex-col gap-8">
+          {activeTab === 'General' && (
+            <>
+              {/* Profile Information */}
+              <Card glass className="border-none shadow-sm rounded-[2rem]">
+                <CardHeader className="border-b border-slate-50 p-8">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                      <UserIcon className="h-5 w-5" />
+                    </div>
+                    <CardTitle className="text-lg">Profile Information</CardTitle>
+                  </div>
+                  <CardDescription>Update your personal details and how others see you.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-8 text-left">
+                  <form onSubmit={handleUpdateProfile} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Display Name</label>
+                        <Input 
+                          placeholder="Full Name" 
+                          value={profileData.name}
+                          onChange={(e) => setProfileData({...profileData, name: e.target.value})}
+                          className="rounded-2xl bg-white border-slate-200"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Email Address</label>
+                        <div className="relative">
+                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                          <Input 
+                            value={profileData.email}
+                            disabled
+                            className="rounded-2xl bg-slate-50 border-slate-100 pl-11 text-slate-400 italic"
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-400 px-1 mt-1 font-medium">To change your email, please contact IT support.</p>
+                      </div>
+                    </div>
+                    <div className="flex justify-end pt-4">
+                      <Button 
+                        type="submit" 
+                        disabled={isSavingProfile || profileData.name === user.name}
+                        className="bg-blue-600 hover:bg-blue-700 px-8 rounded-2xl h-12 text-[10px] font-black uppercase tracking-widest flex gap-2"
+                      >
+                        {isSavingProfile ? <div className="h-4 w-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Save className="h-4 w-4" />}
+                        Save Profile Updates
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* School Information */}
+              <Card glass className="border-none shadow-sm rounded-[2rem]">
+                <CardHeader className="border-b border-slate-50 p-8">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                      <School className="h-5 w-5" />
+                    </div>
+                    <CardTitle className="text-lg">School Information</CardTitle>
+                  </div>
+                  <CardDescription>Update identity details for the institution.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-8 space-y-6 text-left">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Institution Name</label>
+                    <Input className="rounded-2xl border-slate-200" defaultValue="Colegio de Montalban" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Official Address</label>
+                    <Input className="rounded-2xl border-slate-200" defaultValue="Kasiglahan Village, San Jose, Rodriguez, Rizal" />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Office Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input className="rounded-2xl border-slate-200 pl-11" defaultValue="info@cdm.edu.ph" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Website URL</label>
+                      <div className="relative">
+                        <Globe className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input className="rounded-2xl border-slate-200 pl-11" defaultValue="www.cdm.edu.ph" />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {activeTab === 'Enrollment Schedule' && (
+            <Card glass className="border-none shadow-sm rounded-[2rem]">
+              <CardHeader className="border-b border-slate-50 p-8">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                    <Calendar className="h-5 w-5" />
+                  </div>
+                  <CardTitle className="text-lg">Enrollment Period</CardTitle>
+                </div>
+                <CardDescription>Configure when students can access the enrollment portal.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-8 text-left">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Academic Year</label>
+                    <Input 
+                      value={enrollmentSettings.academicYear} 
+                      onChange={(e) => setEnrollmentSettings({...enrollmentSettings, academicYear: e.target.value})}
+                      className="rounded-2xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Semester</label>
+                    <Input 
+                      value={enrollmentSettings.semester} 
+                      onChange={(e) => setEnrollmentSettings({...enrollmentSettings, semester: e.target.value})}
+                      className="rounded-2xl border-slate-200"
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Enrollment End Date & Time</label>
-                  <div className="relative">
-                    <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <input 
-                      type="datetime-local" 
-                      className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium"
-                      value={enrollmentSettings.enrollmentEndDate}
-                      onChange={(e) => setEnrollmentSettings({...enrollmentSettings, enrollmentEndDate: e.target.value})}
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Enrollment Start Date & Time</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input 
+                        type="datetime-local" 
+                        className="w-full pl-11 pr-4 h-12 bg-white rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-xs font-bold"
+                        value={enrollmentSettings.enrollmentStartDate}
+                        onChange={(e) => setEnrollmentSettings({...enrollmentSettings, enrollmentStartDate: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Enrollment End Date & Time</label>
+                    <div className="relative">
+                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input 
+                        type="datetime-local" 
+                        className="w-full pl-11 pr-4 h-12 bg-white rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-xs font-bold"
+                        value={enrollmentSettings.enrollmentEndDate}
+                        onChange={(e) => setEnrollmentSettings({...enrollmentSettings, enrollmentEndDate: e.target.value})}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              <div className="flex items-start gap-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
-                <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-bold text-blue-900">Important</p>
-                  <p className="text-xs text-blue-700 leading-relaxed">The enrollment button will be visible to students only during this specified period. Ensure the local system time matches the server time.</p>
+                
+                <div className="flex items-start gap-4 p-6 bg-blue-50 border border-blue-100 rounded-3xl">
+                  <Info className="h-5 w-5 text-blue-600 mt-1 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-blue-900">Important</p>
+                    <p className="text-xs text-blue-700 leading-relaxed font-medium">The enrollment button will be visible to students only during this specified period. Ensure the local system time matches the server time.</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          <Card glass className="border-none shadow-sm">
-            <CardHeader className="border-b border-slate-50">
-              <div className="flex items-center gap-2 mb-1">
-                <School className="h-5 w-5 text-blue-600" />
-                <CardTitle>School Information</CardTitle>
-              </div>
-              <CardDescription>Update identity details for Collegio de Montalban.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-8 space-y-6 text-left">
-              <Input label="Institution Name" defaultValue="Colegio de Montalban" />
-              <Input label="Office Address" defaultValue="Kasiglahan Village, San Jose, Rodriguez, Rizal" />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input label="Official Email" className="pl-10" defaultValue="info@cdm.edu.ph" />
+                <div className="flex justify-end pt-4">
+                  <Button 
+                    onClick={handleSaveSettings} 
+                    className="bg-[#064e3b] hover:bg-[#053d2e] px-10 rounded-2xl h-12 text-[10px] font-black uppercase tracking-widest flex gap-2"
+                  >
+                    <Save className="h-4 w-4" />
+                    Save Configuration
+                  </Button>
                 </div>
-                <div className="relative">
-                  <Globe className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input label="Website URL" className="pl-10" defaultValue="www.pnm.edu.ph" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
-          <div className="flex justify-end gap-3 translate-y-[-10px]">
-            <Button variant="ghost">Discard Changes</Button>
-            <Button onClick={handleSave} size="lg" className="px-10 bg-[#064e3b] hover:bg-[#053d2e]">Save Configuration</Button>
-          </div>
+          {activeTab === 'Account Security' && (
+            <Card glass className="border-none shadow-sm rounded-[2rem]">
+              <CardHeader className="border-b border-slate-50 p-8">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="p-2 bg-slate-900 text-white rounded-xl">
+                    < Shield className="h-5 w-5" />
+                  </div>
+                  <CardTitle className="text-lg">Security & MFA</CardTitle>
+                </div>
+                <CardDescription>Manage your account security and authentication methods.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 flex flex-col items-center justify-center py-20 text-center">
+                <div className="h-20 w-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-6">
+                  <Shield className="h-10 w-10 text-slate-200" />
+                </div>
+                <p className="text-sm font-bold text-slate-900 mb-2">Advanced Security Settings</p>
+                <p className="text-xs text-slate-500 max-w-sm font-medium">Security settings are managed by the institution. Contact the IT department to enable Multi-Factor Authentication.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'Notifications' && (
+            <Card glass className="border-none shadow-sm rounded-[2rem]">
+              <CardHeader className="border-b border-slate-50 p-8">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                    <Bell className="h-5 w-5" />
+                  </div>
+                  <CardTitle className="text-lg">Notification Preferences</CardTitle>
+                </div>
+                <CardDescription>Control which updates you receive through the portal.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-8 space-y-4">
+                {[
+                  { title: 'New Admissions', desc: 'Notify when a new enrollment application is submitted.', checked: true },
+                  { title: 'System Updates', desc: 'Receive updates about portal maintenance and new features.', checked: true },
+                  { title: 'Student Reports', desc: 'Get alerts when students report technical issues.', checked: true },
+                  { title: 'Email Digests', desc: 'Weekly summary of institution activities.', checked: false },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition-all border border-transparent hover:border-slate-100">
+                    <div>
+                      <p className="text-xs font-black text-slate-900 uppercase tracking-widest">{item.title}</p>
+                      <p className="text-xs text-slate-500 font-medium mt-1">{item.desc}</p>
+                    </div>
+                    <div className={cn(
+                      "w-12 h-6 rounded-full relative transition-colors cursor-pointer",
+                      item.checked ? "bg-blue-600" : "bg-slate-200"
+                    )}>
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow-sm",
+                        item.checked ? "right-1" : "left-1"
+                      )} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

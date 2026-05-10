@@ -89,8 +89,10 @@ export interface PaymentDetails {
 
 export interface User {
   username: string;
+  email: string;
   name: string;
   role: 'admin' | 'student';
+  profilePicture?: string;
 }
 
 export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
@@ -116,4 +118,14 @@ export interface SystemSettings {
   enrollmentEndDate: string;
   academicYear: string;
   semester: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  read: boolean;
+  createdAt: string;
 }

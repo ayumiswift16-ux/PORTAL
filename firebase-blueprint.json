@@ -71,6 +71,32 @@
         "semester": { "type": "string" }
       },
       "required": ["enrollmentStartDate", "enrollmentEndDate", "academicYear", "semester"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Extended user profile data",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "student"] },
+        "profilePicture": { "type": "string" }
+      },
+      "required": ["username", "name", "role"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System notification for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
     }
   },
   "firestore": {
@@ -89,6 +115,14 @@
     "/settings/{settingId}": {
       "schema": "SystemSettings",
       "description": "Global system settings, e.g., 'enrollment'"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and extended data. Listable by role='admin' to allow reporting system issues."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications. Creatable by any user if the recipient is an admin (reporting)."
     }
   }
 }

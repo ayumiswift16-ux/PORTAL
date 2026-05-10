@@ -7,11 +7,23 @@ import {
   Eye, 
   Edit3, 
   Trash2, 
+  File,
   ChevronLeft,
   ChevronRight,
   UserPlus,
   CheckCircle2,
-  X
+  X,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  IdCard,
+  User,
+  Hash,
+  School,
+  Clock,
+  ShieldCheck,
+  Briefcase
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
@@ -21,20 +33,25 @@ import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord } from '@/src/types';
 import toast from 'react-hot-toast';
 import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { COURSES } from '@/src/constants';
+import { sendNotification } from '@/src/lib/notifications';
 
 export default function Records() {
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
+  const [studentProfiles, setStudentProfiles] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCourse, setFilterCourse] = useState('All');
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<EnrollmentRecord | null>(null);
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<EnrollmentRecord | null>(null);
   const [validationData, setValidationData] = useState({ studentId: '', section: '' });
   const [registrationData, setRegistrationData] = useState<any>(null);
   const [sections, setSections] = useState<{name: string, yearLevel: string}[]>([]);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
+  
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
   const navigate = useNavigate();
 
@@ -48,33 +65,54 @@ export default function Records() {
   }, [sections, selectedRecord]);
 
   useEffect(() => {
-    const fetchEnrollments = async () => {
-      try {
-        const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-        const data = querySnapshot.docs.map(doc => ({
+    const unsubEnrollments = onSnapshot(
+      query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc')),
+      (snapshot) => {
+        const data = snapshot.docs.map(doc => ({
           ...doc.data(),
           id: doc.id
         })) as EnrollmentRecord[];
         setEnrollments(data);
-      } catch (error) {
+      },
+      (error) => {
         console.error("Error fetching enrollments:", error);
-        toast.error("Failed to load records from database.");
+        toast.error("Failed to sync records.");
       }
-    };
+    );
 
-    const fetchSections = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'sections'));
-        const sectionData = querySnapshot.docs.map(doc => doc.data() as {name: string, yearLevel: string});
+    const unsubUsers = onSnapshot(
+      query(collection(db, 'users'), where('role', '==', 'student')),
+      (snapshot) => {
+        const profileMap: Record<string, string> = {};
+        snapshot.docs.forEach(doc => {
+          const userData = doc.data() as { profilePicture?: string };
+          if (userData.profilePicture) {
+            profileMap[doc.id] = userData.profilePicture;
+          }
+        });
+        setStudentProfiles(profileMap);
+      },
+      (error) => {
+        console.error("Error fetching user profiles:", error);
+      }
+    );
+
+    const unsubSections = onSnapshot(
+      collection(db, 'sections'),
+      (snapshot) => {
+        const sectionData = snapshot.docs.map(doc => doc.data() as {name: string, yearLevel: string});
         setSections(sectionData);
-      } catch (error) {
+      },
+      (error) => {
         console.error("Error fetching sections:", error);
       }
-    };
+    );
     
-    fetchEnrollments();
-    fetchSections();
+    return () => {
+      unsubEnrollments();
+      unsubUsers();
+      unsubSections();
+    };
   }, []);
 
   const filteredEnrollments = useMemo(() => {
@@ -82,7 +120,9 @@ export default function Records() {
       const matchesSearch = (
         enrollment.studentInfo.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         enrollment.studentInfo.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        enrollment.studentInfo.studentId.toLowerCase().includes(searchTerm.toLowerCase())
+        (enrollment.studentId && enrollment.studentId.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (enrollment.studentInfo.studentId && enrollment.studentInfo.studentId.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (enrollment.userId && enrollment.userId.toLowerCase().includes(searchTerm.toLowerCase()))
       );
       const matchesCourse = filterCourse === 'All' || enrollment.course === filterCourse;
       return matchesSearch && matchesCourse;
@@ -138,21 +178,37 @@ export default function Records() {
       
       await updateDoc(docRef, updates);
 
-      setEnrollments(prev => prev.map(record => {
-        if (record.id === selectedRecord.id) {
-          return {
-            ...record,
-            ...updates
-          };
+      // Send notification to student
+      if (selectedRecord.userId) {
+        const oldId = selectedRecord.studentId || selectedRecord.studentInfo.studentId;
+        const oldSection = selectedRecord.section || selectedRecord.studentInfo.section;
+        const idChanged = validationData.studentId !== oldId;
+        const sectionChanged = validationData.section !== oldSection;
+
+        let message = `Your enrollment for ${selectedRecord.course} has been finalized.`;
+        if (idChanged && sectionChanged) {
+          message += ` Your student number is now ${validationData.studentId} and your section is ${validationData.section}.`;
+        } else if (idChanged) {
+          message += ` Your student number is now ${validationData.studentId}.`;
+        } else if (sectionChanged) {
+          message += ` Your assigned section is ${validationData.section}.`;
         }
-        return record;
-      }));
+        message += " You can now view your Official Registration Form.";
+
+        await sendNotification(
+          selectedRecord.userId,
+          'Enrollment Finalized',
+          message,
+          'success'
+        );
+      }
 
       setIsRegistrationModalOpen(false);
       setIsValidationModalOpen(false);
       toast.success('Registration Form Saved successfully!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `enrollments/${selectedRecord.id}`);
+      console.error("Update error:", error);
+      toast.error("Failed to save registration form.");
     }
   };
 
@@ -174,32 +230,59 @@ export default function Records() {
       
       await updateDoc(docRef, updates);
 
-      setEnrollments(prev => prev.map(record => {
-        if (record.id === selectedRecord.id) {
-          return {
-            ...record,
-            ...updates
-          };
+      // Send notification to student
+      if (selectedRecord.userId) {
+        const oldId = selectedRecord.studentId || selectedRecord.studentInfo.studentId;
+        const oldSection = selectedRecord.section || selectedRecord.studentInfo.section;
+        const idChanged = validationData.studentId !== oldId;
+        const sectionChanged = validationData.section !== oldSection;
+
+        let message = '';
+        if (selectedRecord.status === 'Enrolled') {
+          if (idChanged && sectionChanged) {
+            message = `Your student number has been updated to ${validationData.studentId} and your section to ${validationData.section}.`;
+          } else if (idChanged) {
+            message = `Your student number has been updated to ${validationData.studentId}.`;
+          } else if (sectionChanged) {
+            message = `Your assigned section has been updated to ${validationData.section}.`;
+          } else {
+            message = 'Your student information has been updated by the registrar.';
+          }
+        } else {
+          message = `Your enrollment for ${selectedRecord.course} has been approved! Your student number is ${validationData.studentId} and section is ${validationData.section}.`;
         }
-        return record;
-      }));
+
+        await sendNotification(
+          selectedRecord.userId,
+          selectedRecord.status === 'Enrolled' ? 'Record Updated' : 'Enrollment Approved',
+          message,
+          'success'
+        );
+      }
 
       setIsValidationModalOpen(false);
       toast.success(selectedRecord.status === 'Enrolled' ? 'Information updated successfully!' : 'Student verified and enrolled!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `enrollments/${selectedRecord.id}`);
+      console.error("Validation error:", error);
+      toast.error("Failed to update student information.");
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this record?')) return;
+  const handleDelete = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
     
     try {
-      await deleteDoc(doc(db, 'enrollments', id));
-      setEnrollments(prev => prev.filter(r => r.id !== id));
+      await deleteDoc(doc(db, 'enrollments', deleteConfirmId));
       toast.success('Record deleted successfully');
+      setDeleteConfirmId(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `enrollments/${id}`);
+      console.error("Delete error:", error);
+      toast.error("Failed to delete record. Check your permissions.");
+      setDeleteConfirmId(null);
     }
   };
 
@@ -272,11 +355,23 @@ export default function Records() {
                   <tr key={i} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white">
-                          {enrollment.studentInfo.firstName[0]}{enrollment.studentInfo.lastName[0]}
+                        <div className={cn(
+                          "h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white overflow-hidden",
+                          (studentProfiles[enrollment.userId || ''] || enrollment.studentInfo.documents?.twoByTwoPhoto) ? "bg-white" : "bg-indigo-50 text-indigo-600"
+                        )}>
+                          {studentProfiles[enrollment.userId || ''] ? (
+                            <img src={studentProfiles[enrollment.userId || '']} alt="Profile" className="w-full h-full object-cover" />
+                          ) : enrollment.studentInfo.documents?.twoByTwoPhoto ? (
+                            <img src={enrollment.studentInfo.documents.twoByTwoPhoto} alt="Record Photo" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="uppercase">{enrollment.studentInfo.firstName[0]}{enrollment.studentInfo.lastName[0]}</span>
+                          )}
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                          <p 
+                            onClick={() => setSelectedDetailRecord(enrollment)}
+                            className="text-sm font-bold text-slate-900 cursor-pointer hover:text-blue-600 hover:underline transition-colors decoration-blue-600/30 underline-offset-2"
+                          >
                             {enrollment.studentInfo.firstName} {enrollment.studentInfo.lastName}
                           </p>
                           <p className="text-xs text-slate-500">{enrollment.studentInfo.email}</p>
@@ -388,6 +483,272 @@ export default function Records() {
           </div>
         </div>
       </Card>
+
+      {/* Detailed Student Profile Modal */}
+      <AnimatePresence>
+        {selectedDetailRecord && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-md"
+              onClick={() => setSelectedDetailRecord(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 30 }}
+              className="relative w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden text-left flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="relative h-48 grow-0 shrink-0 bg-slate-900 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-600/40 to-indigo-800/40 z-10" />
+                {selectedDetailRecord.studentInfo.documents?.twoByTwoPhoto || studentProfiles[selectedDetailRecord.userId || ''] ? (
+                  <img 
+                    src={studentProfiles[selectedDetailRecord.userId || ''] || selectedDetailRecord.studentInfo.documents?.twoByTwoPhoto} 
+                    alt="" 
+                    className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-50 scale-110"
+                  />
+                ) : null}
+                
+                <button 
+                  onClick={() => setSelectedDetailRecord(null)}
+                  className="absolute top-8 right-8 z-20 p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl backdrop-blur-md transition-all group"
+                >
+                  <X className="h-5 w-5 transition-transform group-hover:rotate-90" />
+                </button>
+
+                <div className="absolute -bottom-1 left-0 right-0 h-40 bg-gradient-to-t from-white via-white/80 to-transparent z-10" />
+                
+                <div className="absolute bottom-4 left-10 z-20 flex flex-col md:flex-row items-end gap-6">
+                  <div className="h-32 w-32 rounded-[2rem] bg-white p-2 shadow-2xl ring-4 ring-white">
+                    <div className="h-full w-full rounded-[1.5rem] bg-slate-50 overflow-hidden flex items-center justify-center">
+                      {studentProfiles[selectedDetailRecord.userId || ''] || selectedDetailRecord.studentInfo.documents?.twoByTwoPhoto ? (
+                        <img 
+                          src={studentProfiles[selectedDetailRecord.userId || ''] || selectedDetailRecord.studentInfo.documents?.twoByTwoPhoto} 
+                          alt="Profile" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="h-12 w-12 text-slate-300" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <h2 className="text-3xl font-black text-slate-900 leading-tight">
+                      {selectedDetailRecord.studentInfo.firstName} {selectedDetailRecord.studentInfo.middleName ? `${selectedDetailRecord.studentInfo.middleName} ` : ''}{selectedDetailRecord.studentInfo.lastName}
+                    </h2>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-widest border border-blue-100">
+                        {selectedDetailRecord.course}
+                      </span>
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                        {selectedDetailRecord.yearLevel}
+                      </span>
+                      <div className="h-1 w-1 rounded-full bg-slate-300" />
+                      <span className={cn(
+                        "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded",
+                        selectedDetailRecord.status === 'Enrolled' ? "text-emerald-600 bg-emerald-50" :
+                        selectedDetailRecord.status === 'Pending' ? "text-amber-600 bg-amber-50" :
+                        "text-blue-600 bg-blue-50"
+                      )}>
+                        {selectedDetailRecord.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-10 pt-6 space-y-10">
+                {/* Information Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+                  {/* Column 1: Personal Info */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                        <User className="h-4 w-4" />
+                      </div>
+                      <h4 className="font-bold text-slate-900 uppercase text-xs tracking-widest">Personal Details</h4>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Student ID / ID</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <IdCard className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.studentId || selectedDetailRecord.studentInfo.studentId || 'Not Assigned Yet'}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gender</p>
+                          <p className="text-sm font-bold text-slate-800">{selectedDetailRecord.studentInfo.gender}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Age</p>
+                          <p className="text-sm font-bold text-slate-800">{selectedDetailRecord.studentInfo.age} Yrs old</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Birthday</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.studentInfo.birthday}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Address</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-start gap-2 leading-relaxed">
+                          <MapPin className="h-3.5 w-3.5 text-slate-400 mt-1 shrink-0" />
+                          {selectedDetailRecord.studentInfo.address}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Column 2: Contact & Enrollment */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <Phone className="h-4 w-4" />
+                      </div>
+                      <h4 className="font-bold text-slate-900 uppercase text-xs tracking-widest">Contact & Studies</h4>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email Address</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Mail className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.studentInfo.email}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact Number</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Hash className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.studentInfo.contactNumber}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Enrollment Type</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Briefcase className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.type}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Assigned Section</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <School className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.section || selectedDetailRecord.studentInfo.section || 'Not Assigned'}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Applied At</p>
+                        <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedDetailRecord.enrolledAt}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Column 3: Verification status & Docs */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <ShieldCheck className="h-4 w-4" />
+                      </div>
+                      <h4 className="font-bold text-slate-900 uppercase text-xs tracking-widest">Verification</h4>
+                    </div>
+                    
+                    {selectedDetailRecord.studentInfo.documents ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
+                          const docImg = selectedDetailRecord.studentInfo.documents?.[docKey as keyof typeof selectedDetailRecord.studentInfo.documents];
+                          const label = docKey === 'twoByTwoPhoto' ? '2x2 Photo' : docKey.replace(/([A-Z])/g, ' $1').trim();
+                          
+                          return (
+                            <div key={docKey} className="space-y-2">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{label}</p>
+                              <div 
+                                className={cn(
+                                  "aspect-[4/3] rounded-2xl border border-slate-100 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-300 hover:shadow-xl hover:shadow-blue-500/10 transition-all",
+                                  !docImg && "opacity-40"
+                                )}
+                                onClick={() => docImg && setPreviewImage({ url: docImg, title: label })}
+                              >
+                                {docImg ? (
+                                  <img src={docImg} alt={label} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="flex flex-col items-center gap-1 opacity-40">
+                                    <File className="h-5 w-5 text-slate-400" />
+                                    <span className="text-[8px] font-black">MISSING</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-10 border-2 border-dashed border-slate-100 rounded-3xl flex flex-col items-center justify-center text-center">
+                        <File className="h-10 w-10 text-slate-100 mb-2" />
+                        <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">No Documents Uploaded</p>
+                      </div>
+                    )}
+
+                    <div className="mt-4 pt-6 border-t border-slate-100">
+                      <Button 
+                        onClick={() => {
+                          handleOpenValidate(selectedDetailRecord);
+                          setSelectedDetailRecord(null);
+                        }}
+                        className="w-full bg-slate-900 hover:bg-slate-800 rounded-2xl h-12 text-[10px] font-black uppercase tracking-[0.2em]"
+                      >
+                        {selectedDetailRecord.status === 'Enrolled' ? 'Update Student Record' : 'Process This Enrollment'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Academic Load (If Enrolled) */}
+                {selectedDetailRecord.registrationForm && selectedDetailRecord.registrationForm.courses.length > 0 && (
+                  <div className="pt-6 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="font-bold text-slate-900 uppercase text-xs tracking-[0.2em]">Current Academic Load</h4>
+                      <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-widest border border-blue-100">
+                        {selectedDetailRecord.registrationForm.academicYear} | SEM {selectedDetailRecord.registrationForm.semester}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {selectedDetailRecord.registrationForm.courses.map((course, idx) => (
+                        <div key={idx} className="p-5 bg-slate-50/50 border border-slate-100 rounded-[1.5rem] hover:bg-white hover:shadow-xl hover:shadow-slate-200/50 transition-all group">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[10px] font-black text-slate-400 group-hover:text-blue-500 transition-colors uppercase tracking-widest leading-none bg-white p-1 px-1.5 rounded-lg border border-slate-100">
+                              {course.code}
+                            </span>
+                            <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">
+                              {course.units} Units
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-slate-700 mb-1 line-clamp-2 leading-relaxed">
+                            {course.description}
+                          </p>
+                          <p className="text-[10px] font-medium text-slate-400">
+                            Section: <span className="text-slate-900 font-bold">{course.section}</span>
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Validation Modal */}
       <AnimatePresence>
@@ -729,7 +1090,7 @@ export default function Records() {
       {/* Image Preview Lightbox */}
       <AnimatePresence>
         {previewImage && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -775,6 +1136,51 @@ export default function Records() {
               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
                 <h4 className="text-white font-bold text-xl drop-shadow-md">{previewImage.title}</h4>
                 <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Full Image View</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setDeleteConfirmId(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden text-center p-8"
+            >
+              <div className="h-20 w-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="h-10 w-10" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Record?</h3>
+              <p className="text-sm text-slate-500 mb-8 leading-relaxed">
+                Are you sure you want to delete this record? This will completely reset the student's enrollment status. This action cannot be undone.
+              </p>
+              <div className="flex flex-col gap-3">
+                <Button 
+                  variant="destructive" 
+                  className="w-full h-12 text-sm font-bold uppercase tracking-widest"
+                  onClick={confirmDelete}
+                >
+                  Delete Permanently
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full h-12 text-sm font-bold uppercase tracking-widest border-transparent hover:bg-slate-50"
+                  onClick={() => setDeleteConfirmId(null)}
+                >
+                  Cancel
+                </Button>
               </div>
             </motion.div>
           </div>

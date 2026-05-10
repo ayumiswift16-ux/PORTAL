@@ -17,11 +17,13 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      // For this app, we'll check if the user's email is the one used to set up the app 
-      // or if they match the specific admin accounts requested.
       return isSignedIn() && (
         request.auth.token.email == 'davevenzon789@gmail.com' ||
-        request.auth.token.email.matches('^admin[1-5]@school\\.portal$')
+        request.auth.token.email == 'admin1@school.portal' ||
+        request.auth.token.email == 'admin2@school.portal' ||
+        request.auth.token.email == 'admin3@school.portal' ||
+        request.auth.token.email == 'admin4@school.portal' ||
+        request.auth.token.email == 'admin5@school.portal'
       );
     }
 
@@ -48,7 +50,8 @@ service cloud.firestore {
 
     // 1. Enrollments
     match /enrollments/{enrollmentId} {
-      allow read: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
       
       allow create: if (isAdmin() || (isEmailVerified() && incoming().userId == request.auth.uid)) && 
                       isValidEnrollment(incoming()) && 
@@ -83,6 +86,30 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    // 5. Users
+    match /users/{userId} {
+      allow list: if isAdmin() || (isSignedIn() && resource.data.role == 'admin');
+      allow get: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+      allow create: if isSignedIn() && userId == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+    }
+
+    // 6. Notifications
+    match /notifications/{notificationId} {
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow get: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (
+        isAdmin() || 
+        get(/databases/$(database)/documents/users/$(incoming().userId)).data.role == 'admin'
+      );
+      allow update: if isAdmin() || (
+        isSignedIn() && 
+        resource.data.userId == request.auth.uid && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['read'])
+      );
+      allow delete: if isAdmin();
     }
   }
 }
