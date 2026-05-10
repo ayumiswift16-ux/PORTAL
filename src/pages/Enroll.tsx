@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -12,17 +12,20 @@ import {
   CheckCircle2,
   GraduationCap,
   Sparkles,
-  Info
+  Info,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardTitle } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 import { ENROLLMENT_TYPES, COURSES, YEAR_LEVELS } from '@/src/constants';
-import { StudentInfo, EnrollmentType, Course, YearLevel, User as UserType, EnrollmentRecord } from '@/src/types';
+import { StudentInfo, EnrollmentType, Course, YearLevel, User as UserType, EnrollmentRecord, SystemSettings } from '@/src/types';
 import { cn } from '@/src/utils/cn';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
+import { doc, getDoc, setDoc, query, collection, where, getDocs, limit } from 'firebase/firestore';
 
 const STEPS = [
   { id: 1, title: 'Student info', description: 'Personal details' },
@@ -42,6 +45,12 @@ const INITIAL_STUDENT_INFO: StudentInfo = {
   birthday: '',
   studentId: '',
   yearLevel: '1st Year',
+  documents: {
+    summaryOfGrades: '',
+    goodMoral: '',
+    twoByTwoPhoto: '',
+    birthCertificate: '',
+  }
 };
 
 export default function Enroll() {
@@ -53,6 +62,8 @@ export default function Enroll() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [enrollmentStatus, setEnrollmentStatus] = useState<'Not Started' | 'Validating' | 'Enrolled'>('Not Started');
+  const [enrollmentRecord, setEnrollmentRecord] = useState<EnrollmentRecord | null>(null);
+  const [settings, setSettings] = useState<SystemSettings | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -61,30 +72,106 @@ export default function Enroll() {
       const parsedUser = JSON.parse(savedUser);
       setUser(parsedUser);
       
-      // Check global enrollment status
-      const allSaved = localStorage.getItem('cdm_all_enrollments');
-      if (allSaved && parsedUser.role === 'student') {
-        const all: EnrollmentRecord[] = JSON.parse(allSaved);
-        const mine = all.find(r => r.id === parsedUser.username);
-        if (mine) {
-          setEnrollmentStatus(mine.status);
-          setStudentInfo(mine.studentInfo);
-          setEnrollmentType(mine.type);
-          setSelectedCourse(mine.course);
-        } else {
-          // Fallback to simpler local storage if not in global (for backward compatibility during dev)
-          const savedInfo = localStorage.getItem(`cdm_enrollment_${parsedUser.username}`);
-          if (savedInfo) {
-            setStudentInfo(JSON.parse(savedInfo));
-            setEnrollmentStatus('Validating');
+      const fetchData = async () => {
+        try {
+          // Fetch Settings
+          const settingsSnap = await getDoc(doc(db, 'settings', 'enrollment'));
+          if (settingsSnap.exists()) {
+            setSettings(settingsSnap.data() as SystemSettings);
           }
+
+          if (parsedUser.role === 'student') {
+            // Try fetching by username as document ID first
+            const docRef = doc(db, 'enrollments', parsedUser.username);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+              const data = docSnap.data() as EnrollmentRecord;
+              setEnrollmentRecord(data);
+              setEnrollmentStatus(data.status as any);
+              setStudentInfo(data.studentInfo);
+              setEnrollmentType(data.type);
+              setSelectedCourse(data.course);
+            } else {
+              // Fallback: search by userId field if username isn't doc ID
+              const q = query(collection(db, 'enrollments'), where('userId', '==', parsedUser.username), limit(1));
+              const querySnapshot = await getDocs(q);
+              if (!querySnapshot.empty) {
+                const data = querySnapshot.docs[0].data() as EnrollmentRecord;
+                setEnrollmentRecord(data);
+                setEnrollmentStatus(data.status as any);
+                setStudentInfo(data.studentInfo);
+                setEnrollmentType(data.type);
+                setSelectedCourse(data.course);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching enrollment data:", error);
         }
-      }
+      };
+      
+      fetchData();
     }
   }, []);
 
+  const enrollmentPeriodStatus = React.useMemo(() => {
+    if (!settings?.enrollmentStartDate || !settings?.enrollmentEndDate) return 'Not Set';
+    const now = new Date();
+    const start = new Date(settings.enrollmentStartDate);
+    const end = new Date(settings.enrollmentEndDate);
+
+    if (now < start) return 'Upcoming';
+    if (now > end) return 'Ended';
+    return 'Active';
+  }, [settings]);
+
   const isAdmin = user?.role === 'admin';
   const isReadOnly = enrollmentStatus === 'Enrolled' && !isAdmin;
+
+  const isAccessBlocked = !isAdmin && enrollmentPeriodStatus !== 'Active' && enrollmentStatus !== 'Enrolled';
+
+  if (isAccessBlocked) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="h-20 w-20 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mb-6">
+          <Calendar className="h-10 w-10" />
+        </div>
+        <h2 className="text-3xl font-black text-slate-900 mb-2">Enrollment is {enrollmentPeriodStatus}</h2>
+        <p className="text-slate-500 max-w-md mb-8">
+          {enrollmentPeriodStatus === 'Upcoming' 
+            ? `Enrollment will open on ${new Date(settings?.enrollmentStartDate || '').toLocaleString()}. Please come back then.`
+            : 'Enrollment for the current period has already ended. Please contact the registrar for more information.'
+          }
+        </p>
+        <Button onClick={() => navigate('/dashboard')} variant="primary" size="lg">
+          Back to Dashboard
+        </Button>
+      </div>
+    );
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'summaryOfGrades' | 'goodMoral' | 'twoByTwoPhoto' | 'birthCertificate') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 1024 * 500) { // 500KB limit for base64 storage in Firestore (roughly)
+        toast.error("File is too large. Please keep it under 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setStudentInfo({
+          ...studentInfo,
+          documents: {
+            ...studentInfo.documents,
+            [field]: reader.result as string
+          }
+        });
+        toast.success(`${field.replace(/([A-Z])/g, ' $1').trim()} updated!`);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleNext = () => {
     if (currentStep < 3) setCurrentStep(currentStep + 1);
@@ -94,13 +181,15 @@ export default function Enroll() {
     if (currentStep > 1) setCurrentStep(currentStep - 1);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
     // Current timestamp
     const now = new Date().toISOString();
     
     // Construct the enrollment record
     const newRecord: EnrollmentRecord = {
       id: user?.username || Math.random().toString(36).substring(7),
+      userId: user?.username, // Use username as userId since we don't have FirebaseAuth UIDs yet
       studentInfo: {
         ...studentInfo,
         studentId: studentInfo.studentId || '' // Keep empty if not admin assigned yet
@@ -112,26 +201,11 @@ export default function Enroll() {
       enrolledAt: now
     };
 
-    // Save to global simulated data store for Admin
-    const allSaved = localStorage.getItem('cdm_all_enrollments');
-    const allEnrollments: EnrollmentRecord[] = allSaved ? JSON.parse(allSaved) : [];
-    
-    // Replace or add new enrollment
-    const recordIndex = allEnrollments.findIndex(r => r.id === newRecord.id);
-    if (recordIndex >= 0) {
-      allEnrollments[recordIndex] = newRecord;
-    } else {
-      allEnrollments.push(newRecord);
-    }
-    localStorage.setItem('cdm_all_enrollments', JSON.stringify(allEnrollments));
+    try {
+      // Save to Firestore
+      const docRef = doc(db, 'enrollments', newRecord.id);
+      await setDoc(docRef, newRecord);
 
-    // Save student's specific info for their view
-    if (user?.role === 'student') {
-      localStorage.setItem(`cdm_enrollment_${user.username}`, JSON.stringify(studentInfo));
-    }
-    
-    setIsSubmitting(true);
-    setTimeout(() => {
       setIsSubmitting(false);
       setIsSuccess(true);
       setEnrollmentStatus('Validating');
@@ -142,7 +216,10 @@ export default function Enroll() {
         colors: ['#064e3b', '#10b981', '#ffffff']
       });
       toast.success(enrollmentStatus === 'Validating' ? 'Information updated successfully!' : 'Enrollment submitted successfully!');
-    }, 2000);
+    } catch (error) {
+      setIsSubmitting(false);
+      handleFirestoreError(error, OperationType.WRITE, `enrollments/${newRecord.id}`);
+    }
   };
 
   const handleReset = () => {
@@ -151,6 +228,214 @@ export default function Enroll() {
     setIsSuccess(false);
     navigate(isAdmin ? '/records' : '/dashboard');
   };
+
+  if (enrollmentStatus === 'Enrolled' && enrollmentRecord?.registrationForm) {
+    const rf = enrollmentRecord.registrationForm;
+    return (
+      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="flex items-center justify-between no-print">
+          <div>
+            <h2 className="text-3xl font-black text-slate-900">Official Registration Form</h2>
+            <p className="text-slate-500">Your enrollment has been finalized. Download or print your official form below.</p>
+          </div>
+          <Button onClick={() => window.print()} variant="outline" className="flex items-center gap-2 border-slate-200">
+            <Download className="h-4 w-4" />
+            Print Document
+          </Button>
+        </div>
+
+        <Card className="bg-white border-none shadow-2xl relative overflow-hidden print:shadow-none print:p-0 p-1 md:p-4">
+          <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6">
+            {/* Form Header */}
+            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6">
+              <img src="/cdm-logo.png" alt="Logo" className="h-24 w-24 object-contain" />
+              <div className="flex-1 text-center md:text-left">
+                <h1 className="text-2xl font-black text-[#064e3b] tracking-tight leading-none">COLEGIO DE MONTALBAN</h1>
+                <p className="text-sm font-bold text-slate-700 mt-1 italic">Kasiglahan Village, San Jose, Rodriguez, Rizal</p>
+                <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter mt-1">OFFICE OF THE REGISTRAR</h2>
+                <p className="text-[10px] text-slate-500 font-bold mt-1">(02) 8395-9731 | registrar@pnm.edu.ph | www.pnm.edu.ph</p>
+              </div>
+              <div className="text-center md:text-right flex flex-col items-center md:items-end">
+                <h3 className="text-2xl font-black text-slate-800 leading-tight">Official<br/>Registration<br/>& COE</h3>
+                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Certificate of Enrollment</p>
+              </div>
+            </div>
+
+            {/* Academic Year Box */}
+            <div className="border-2 border-[#064e3b] p-3 text-left">
+              <p className="text-[11px] font-black text-slate-900">
+                Academic Year/Term: <span className="font-bold">{rf.academicYear}</span> / Semester: <span className="font-bold">{rf.semester}</span>
+              </p>
+            </div>
+
+            {/* Student Info Table */}
+            <div className="border-2 border-[#064e3b] overflow-hidden">
+              <div className="grid grid-cols-12 border-b-2 border-[#064e3b]">
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Student ID</p>
+                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.studentId || enrollmentRecord.studentInfo.studentId}</p>
+                </div>
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Program</p>
+                  <p className="text-xs font-bold text-slate-900">{rf.program}</p>
+                </div>
+                <div className="col-span-3 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Student Type</p>
+                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.type}</p>
+                </div>
+                <div className="col-span-3 bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Year Level</p>
+                  <p className="text-xs font-bold text-slate-900">{enrollmentRecord.yearLevel}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-12">
+                <div className="col-span-6 border-r-2 border-[#064e3b] bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Name</p>
+                  <p className="text-xs font-bold text-slate-900 uppercase">{studentInfo.lastName}, {studentInfo.firstName} {studentInfo.middleName}</p>
+                </div>
+                <div className="col-span-6 bg-slate-50/50 p-2">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Institute</p>
+                  <p className="text-xs font-bold text-slate-900 uppercase">{rf.institute}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Courses Table */}
+            <div className="border-2 border-[#064e3b] overflow-hidden">
+              <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] text-center">
+                <p className="text-[11px] font-black uppercase tracking-widest text-[#064e3b]">Courses Enrolled</p>
+              </div>
+              <table className="w-full text-right text-[10px]">
+                <thead className="border-b-2 border-[#064e3b]">
+                  <tr className="font-black text-slate-700">
+                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b] w-24">Code</th>
+                    <th className="px-3 py-2 text-left border-r-2 border-[#064e3b]">Description</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">Section</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Lec</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Lab</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">CompLab</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-12 text-center">Units</th>
+                    <th className="px-2 py-2 border-r-2 border-[#064e3b] w-16 text-center">Rate</th>
+                    <th className="px-3 py-2 w-24">Course Fee</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y-2 divide-slate-100">
+                  {rf.courses.map((course, i) => (
+                    <tr key={i} className="font-bold text-slate-700">
+                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] uppercase">{course.code}</td>
+                      <td className="px-3 py-2 text-left border-r-2 border-[#064e3b] truncate uppercase">{course.description}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center uppercase">{course.section}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.lec}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.lab}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.compLab}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.units}</td>
+                      <td className="px-2 py-2 border-r-2 border-[#064e3b] text-center">{course.rate}</td>
+                      <td className="px-3 py-2 font-black">₱{course.fee.toLocaleString()}.00</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t-2 border-[#064e3b] bg-slate-50 font-black text-slate-900">
+                  <tr>
+                    <td colSpan={6} className="px-3 py-2 text-right uppercase tracking-[0.2em] border-r-2 border-[#064e3b]">Total Units</td>
+                    <td className="px-2 py-2 text-center border-r-2 border-[#064e3b]">{rf.courses.reduce((acc, c) => acc + c.units, 0)}</td>
+                    <td colSpan={2} className="px-3 py-2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+              {/* Assessed Fees (Page 1 Left) */}
+              <div className="border-2 border-[#064e3b] overflow-hidden">
+                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b]">
+                  <p className="text-[10px] font-black uppercase text-[#064e3b]">Assessed Fees</p>
+                </div>
+                <div className="divide-y-2 divide-slate-100">
+                  {[
+                    { label: 'Tuition Fee', val: rf.assessedFees.tuition },
+                    { label: 'Admission Fee', val: rf.assessedFees.admission },
+                    { label: 'Athletic Fee', val: rf.assessedFees.athletic },
+                    { label: 'Computer Fee', val: rf.assessedFees.computer },
+                    { label: 'Cultural Fee', val: rf.assessedFees.cultural },
+                    { label: 'Developmental Fee', val: rf.assessedFees.developmental },
+                    { label: 'Guidance Fee', val: rf.assessedFees.guidance },
+                    { label: 'Laboratory Fee', val: rf.assessedFees.laboratory },
+                    { label: 'Library Fee', val: rf.assessedFees.library },
+                    { label: 'Medical and Dental Fee', val: rf.assessedFees.medicalDental },
+                    { label: 'NSTP Fee', val: rf.assessedFees.nstp },
+                    { label: 'Registration Fee', val: rf.assessedFees.registration },
+                    { label: 'School ID Fee', val: rf.assessedFees.schoolId },
+                    { label: 'Student Handbook Fee', val: rf.assessedFees.handbook },
+                  ].map((fee, i) => (
+                    <div key={i} className="flex justify-between text-[10px] px-3 py-1.5 font-bold text-slate-700">
+                      <span className="uppercase">{fee.label}</span>
+                      <span>₱ {fee.val.toLocaleString()}.00</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-xs px-3 py-2 font-black bg-[#064e3b] text-white">
+                    <span className="uppercase tracking-widest">Total Amount</span>
+                    <span>₱ {rf.assessedFees.total.toLocaleString()}.00</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pledge and Signatures */}
+              <div className="space-y-6 flex flex-col h-full">
+                <div className="border-2 border-[#064e3b] p-4 text-left">
+                  <h4 className="text-[11px] font-black uppercase text-[#064e3b] mb-2">Pledge of Admission</h4>
+                  <p className="text-[9px] font-bold text-slate-700 leading-relaxed italic">
+                    In consideration of my admission to Colegio de Montalban and the privileges granted to students, I hereby pledge to abide by and comply with all rules and regulations established by the competent authorities of Colegio de Montalban.
+                  </p>
+                </div>
+
+                <div className="mt-auto space-y-12">
+                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center">
+                    <p className="text-xs font-black uppercase underline underline-offset-4 decoration-2">{studentInfo.lastName}, {studentInfo.firstName} {studentInfo.middleName}</p>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Student's Name and Signature</p>
+                  </div>
+                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center">
+                    <p className="text-xs font-black uppercase underline underline-offset-4 decoration-2">JOHN MICHAEL R. QUINQUE, LPT</p>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Head, Office of the Registrar</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Details (Page 2 Box) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end pt-4">
+              <div className="border-2 border-[#064e3b] overflow-hidden max-w-sm">
+                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b]">
+                  <p className="text-[10px] font-black uppercase text-[#064e3b]">Payment Details</p>
+                </div>
+                <div className="divide-y-2 divide-slate-100">
+                  <div className="grid grid-cols-2 text-[10px]">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Mode of Payment:</div>
+                    <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.mode}</div>
+                  </div>
+                  <div className="grid grid-cols-2 text-[10px]">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Amount Paid:</div>
+                    <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.amount}</div>
+                  </div>
+                  <div className="grid grid-cols-2 text-[10px]">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Date Paid:</div>
+                    <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.date}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                 <p className="text-[8px] font-bold text-slate-400 uppercase">Generated on: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+              </div>
+            </div>
+
+            {/* Red Note */}
+            <p className="mt-8 text-[9px] text-red-600 font-bold leading-relaxed text-center px-12 italic uppercase tracking-wider">
+              NOTE: This document is not valid without the student's signature, registrar's signature, and official college seal.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
@@ -220,11 +505,11 @@ export default function Enroll() {
       </div>
 
       {/* Stepper */}
-      <div className="relative">
-        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -translate-y-1/2 -z-10 px-12" />
+      <div className="relative max-w-2xl mx-auto">
+        <div className="absolute top-5 left-0 w-full h-0.5 bg-slate-200 -translate-y-1/2 -z-10" />
         <div className="flex justify-between">
           {STEPS.map((step) => (
-            <div key={step.id} className="flex flex-col items-center gap-3 bg-slate-50 px-4">
+            <div key={step.id} className="flex flex-col items-center gap-3">
               <motion.div
                 animate={{
                   backgroundColor: currentStep >= step.id ? '#2563eb' : '#f1f5f9',
@@ -391,6 +676,115 @@ export default function Enroll() {
                       />
                     </div>
                   </div>
+
+                  {studentInfo.yearLevel === '1st Year' && (
+                    <div className="pt-8 border-t border-slate-100 space-y-6">
+                      <div className="flex items-center gap-3 text-slate-900">
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <h3 className="text-xl font-bold">Requirement Documents (1st Year Only)</h3>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-slate-700">Summary of Grades</label>
+                          <div className={cn(
+                            "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
+                            studentInfo.documents?.summaryOfGrades ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                          )}>
+                            {studentInfo.documents?.summaryOfGrades ? (
+                              <img src={studentInfo.documents.summaryOfGrades} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
+                            ) : (
+                              <Info className="h-6 w-6 text-slate-400 mb-2" />
+                            )}
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center relative z-10">
+                              {studentInfo.documents?.summaryOfGrades ? 'Change Document' : 'Upload Grades'}
+                            </span>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="absolute inset-0 opacity-0 cursor-pointer" 
+                              onChange={(e) => handleFileChange(e, 'summaryOfGrades')}
+                              disabled={isReadOnly}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-slate-700">Good Moral Certificate</label>
+                          <div className={cn(
+                            "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
+                            studentInfo.documents?.goodMoral ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                          )}>
+                            {studentInfo.documents?.goodMoral ? (
+                              <img src={studentInfo.documents.goodMoral} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
+                            ) : (
+                              <Info className="h-6 w-6 text-slate-400 mb-2" />
+                            )}
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center relative z-10">
+                              {studentInfo.documents?.goodMoral ? 'Change Document' : 'Upload Certificate'}
+                            </span>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="absolute inset-0 opacity-0 cursor-pointer" 
+                              onChange={(e) => handleFileChange(e, 'goodMoral')}
+                              disabled={isReadOnly}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-slate-700">Birth Certificate</label>
+                          <div className={cn(
+                            "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
+                            studentInfo.documents?.birthCertificate ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                          )}>
+                            {studentInfo.documents?.birthCertificate ? (
+                              <img src={studentInfo.documents.birthCertificate} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
+                            ) : (
+                              <Info className="h-6 w-6 text-slate-400 mb-2" />
+                            )}
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center relative z-10">
+                              {studentInfo.documents?.birthCertificate ? 'Change Document' : 'Upload Birth Cert'}
+                            </span>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="absolute inset-0 opacity-0 cursor-pointer" 
+                              onChange={(e) => handleFileChange(e, 'birthCertificate')}
+                              disabled={isReadOnly}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-slate-700">2x2 Student Photo</label>
+                          <div className={cn(
+                            "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
+                            studentInfo.documents?.twoByTwoPhoto ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                          )}>
+                            {studentInfo.documents?.twoByTwoPhoto ? (
+                              <img src={studentInfo.documents.twoByTwoPhoto} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
+                            ) : (
+                              <Info className="h-6 w-6 text-slate-400 mb-2" />
+                            )}
+                            <span className="text-[10px] text-slate-500 font-bold uppercase text-center relative z-10">
+                              {studentInfo.documents?.twoByTwoPhoto ? 'Change Photo' : 'Upload 2x2 Image'}
+                            </span>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="absolute inset-0 opacity-0 cursor-pointer" 
+                              onChange={(e) => handleFileChange(e, 'twoByTwoPhoto')}
+                              disabled={isReadOnly}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

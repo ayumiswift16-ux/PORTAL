@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Plus, Trash2, BookOpen, User, MapPin, AlertCircle, Settings, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, Plus, Trash2, BookOpen, User, MapPin, AlertCircle, Settings, ChevronDown, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -7,6 +7,9 @@ import { Button } from '../components/ui/Button';
 import { cn } from '../utils/cn';
 import { Day, ScheduleItem, Section, YearLevel, User as UserType, EnrollmentRecord } from '../types';
 import { toast } from 'react-hot-toast';
+import { db, OperationType, handleFirestoreError } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, addDoc } from 'firebase/firestore';
+import { COURSES } from '../constants';
 
 const DAYS: Day[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -17,44 +20,49 @@ export default function Scheduling() {
   });
   const isAdmin = user?.role === 'admin';
 
-  const [sections, setSections] = useState<Section[]>(() => {
-    const saved = localStorage.getItem('cdm_sections');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter((s: Section) => s && typeof s === 'object' && s.name && s.name.trim() !== '');
-        }
-      } catch (e) {
-        console.error("Error parsing sections", e);
-      }
-    }
-    return [
-      { name: 'BSIT-1A', yearLevel: '1st Year' },
-      { name: 'BSIT-1B', yearLevel: '1st Year' },
-      { name: 'BSIT-1C', yearLevel: '1st Year' },
-      { name: 'BSIT-1D', yearLevel: '1st Year' },
-    ];
-  });
-  const [selectedSection, setSelectedSection] = useState(sections[0]?.name || '');
+  const [sections, setSections] = useState<Section[]>([]);
+  const [selectedSection, setSelectedSection] = useState('');
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
 
   useEffect(() => {
-    // If student, find their assigned section
-    if (!isAdmin && user) {
-      const allSaved = localStorage.getItem('cdm_all_enrollments');
-      if (allSaved) {
-        const all: EnrollmentRecord[] = JSON.parse(allSaved);
-        const mine = all.find(r => r.id === user.username);
-        if (mine?.studentInfo?.section) {
-          setSelectedSection(mine.studentInfo.section);
+    const fetchData = async () => {
+      try {
+        // Fetch Sections
+        const sectionSnap = await getDocs(collection(db, 'sections'));
+        const sectionData = sectionSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Section[];
+        setSections(sectionData);
+        if (isAdmin && sectionData.length > 0 && !selectedSection) {
+          setSelectedSection(sectionData[0].name);
         }
+
+        // Fetch Schedules
+        const scheduleSnap = await getDocs(collection(db, 'schedules'));
+        setSchedules(scheduleSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as ScheduleItem[]);
+
+        // If student, find their assigned section
+        if (!isAdmin && user) {
+          const docRef = doc(db, 'enrollments', user.username);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const mine = docSnap.data() as EnrollmentRecord;
+            const assignedSection = mine.section || mine.studentInfo?.section;
+            if (assignedSection) {
+              setSelectedSection(assignedSection);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching scheduling data:", error);
       }
-    }
+    };
+    
+    fetchData();
   }, [isAdmin, user]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [isManagingSections, setIsManagingSections] = useState(false);
+  const [sectionSearch, setSectionSearch] = useState('');
+  const [dropdownSearch, setDropdownSearch] = useState('');
   const [newSectionName, setNewSectionName] = useState('');
   const [newSectionYear, setNewSectionYear] = useState<YearLevel>('1st Year');
   const [isSectionOpen, setIsSectionOpen] = useState(false);
@@ -65,43 +73,90 @@ export default function Scheduling() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const savedSchedules = localStorage.getItem('cdm_schedules');
-    if (savedSchedules) {
-      setSchedules(JSON.parse(savedSchedules));
-    }
-  }, []);
-
-  const saveSchedules = (newSchedules: ScheduleItem[]) => {
-    setSchedules(newSchedules);
-    localStorage.setItem('cdm_schedules', JSON.stringify(newSchedules));
-  };
-
-  const saveSections = (newSections: Section[]) => {
-    const cleaned = newSections.filter(s => s && s.name && s.name.trim() !== '');
-    setSections(cleaned);
-    localStorage.setItem('cdm_sections', JSON.stringify(cleaned));
-  };
-
-  const addSection = () => {
+  const addSection = async () => {
     if (!newSectionName.trim()) return;
     const name = newSectionName.trim().toUpperCase();
     if (sections.some(s => s.name === name)) {
       toast.error('Section already exists');
       return;
     }
-    const updated = [...sections, { name, yearLevel: newSectionYear }];
-    saveSections(updated);
-    setNewSectionName('');
-    toast.success('Section added');
+    
+    try {
+      const newSection = { name, yearLevel: newSectionYear };
+      await setDoc(doc(db, 'sections', name), newSection);
+      setSections([...sections, newSection]);
+      setNewSectionName('');
+      toast.success('Section added');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `sections/${name}`);
+    }
   };
 
-  const removeSection = (name: string) => {
-    const updated = sections.filter(s => s.name !== name);
-    saveSections(updated);
-    if (selectedSection === name) setSelectedSection(updated[0]?.name || '');
-    toast.success('Section removed');
+  const removeSection = async (name: string) => {
+    try {
+      await deleteDoc(doc(db, 'sections', name));
+      const updated = sections.filter(s => s.name !== name);
+      setSections(updated);
+      if (selectedSection === name) setSelectedSection(updated[0]?.name || '');
+      toast.success('Section removed');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `sections/${name}`);
+    }
   };
+
+  const seedDefaultSections = async () => {
+    const defaults: { name: string; yearLevel: string }[] = [];
+    const yearLevels: YearLevel[] = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+    
+    // Generate A-D sessions for each course for ALL Year levels
+    COURSES.forEach(course => {
+      yearLevels.forEach((year, idx) => {
+        const yearNum = idx + 1;
+        ['A', 'B', 'C', 'D'].forEach(letter => {
+          defaults.push({
+            name: `${course.id} - ${yearNum}${letter}`,
+            yearLevel: year
+          });
+        });
+      });
+    });
+
+    let count = 0;
+    for (const s of defaults) {
+      if (!sections.some(existing => existing.name === s.name)) {
+        try {
+          await setDoc(doc(db, 'sections', s.name), s);
+          count++;
+        } catch (e) {
+          console.error("Error seeding section", s.name, e);
+        }
+      }
+    }
+
+    if (count > 0) {
+      const sectionSnap = await getDocs(collection(db, 'sections'));
+      setSections(sectionSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Section[]);
+      toast.success(`Seeded ${count} new sections across all year levels!`);
+    } else {
+      toast.error('All default sections for available courses already exist.');
+    }
+  };
+
+  const filteredSections = sections
+    .filter(s => s && s.name && s.name.trim() !== '')
+    .filter(s => 
+      s.name.toLowerCase().includes(sectionSearch.toLowerCase()) ||
+      s.yearLevel.toLowerCase().includes(sectionSearch.toLowerCase())
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const filteredDropdownSections = sections
+    .filter(s => s && s.name && s.name.trim() !== '')
+    .filter(s => 
+      s.name.toLowerCase().includes(dropdownSearch.toLowerCase()) ||
+      s.yearLevel.toLowerCase().includes(dropdownSearch.toLowerCase())
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // Form State
   const [formData, setFormData] = useState({
@@ -129,7 +184,7 @@ export default function Scheduling() {
     });
   };
 
-  const handleAddSchedule = (e: React.FormEvent) => {
+  const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.startTime >= formData.endTime) {
@@ -142,32 +197,44 @@ export default function Scheduling() {
       return;
     }
 
-    const newItem: ScheduleItem = {
-      id: crypto.randomUUID(),
-      section: selectedSection,
-      ...formData,
-    };
+    try {
+      const scheduleId = crypto.randomUUID();
+      const newItem: ScheduleItem = {
+        id: scheduleId,
+        section: selectedSection,
+        ...formData,
+      };
 
-    saveSchedules([...schedules, newItem]);
-    setIsAdding(false);
-    setFormData({
-      subject: '',
-      day: formData.day,
-      startTime: '08:00',
-      endTime: '09:00',
-      instructor: '',
-      room: '',
-    });
-    toast.success('Schedule added successfully!');
+      await setDoc(doc(db, 'schedules', scheduleId), newItem);
+      setSchedules([...schedules, newItem]);
+      
+      setIsAdding(false);
+      setFormData({
+        subject: '',
+        day: formData.day,
+        startTime: '08:00',
+        endTime: '09:00',
+        instructor: '',
+        room: '',
+      });
+      toast.success('Schedule added successfully!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'schedules');
+    }
   };
 
-  const removeSchedule = (id: string) => {
-    saveSchedules(schedules.filter(s => s.id !== id));
-    toast.success('Schedule removed');
+  const removeSchedule = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'schedules', id));
+      setSchedules(schedules.filter(s => s.id !== id));
+      toast.success('Schedule removed');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `schedules/${id}`);
+    }
   };
 
   const getSectionSchedules = () => {
-    return schedules.filter(s => s.section === selectedSection)
+    return schedules.filter(s => s.section?.trim().toLowerCase() === selectedSection?.trim().toLowerCase())
       .sort((a, b) => {
         const dayOrder = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
         if (dayOrder !== 0) return dayOrder;
@@ -239,30 +306,52 @@ export default function Scheduling() {
                 exit={{ opacity: 0, y: 10 }}
                 className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden py-2"
               >
-                {sections.filter(s => s.name).map(section => (
-                  <button
-                    key={section.name}
-                    onClick={() => {
-                      setSelectedSection(section.name);
-                      setIsSectionOpen(false);
-                    }}
-                    className={cn(
-                      "flex items-center justify-between w-full px-6 py-3 text-sm transition-colors border-b last:border-0 border-slate-50",
-                      selectedSection === section.name 
-                        ? "bg-blue-600 text-white font-bold" 
-                        : "text-slate-600 hover:bg-slate-50"
-                    )}
-                  >
-                    <span className="text-black">{section.name}</span>
-                    <span className={cn(
-                      "text-[10px] font-bold uppercase",
-                      selectedSection === section.name ? "text-white" : "text-slate-500"
-                    )}>{section.yearLevel}</span>
-                  </button>
-                ))}
-                {sections.length === 0 && (
-                  <div className="px-6 py-4 text-sm text-slate-400">No sections added yet.</div>
-                )}
+                <div className="px-4 pb-2 pt-1 border-b border-slate-50">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search section..."
+                      autoFocus
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm outline-none focus:ring-1 focus:ring-blue-400"
+                      value={dropdownSearch}
+                      onChange={(e) => setDropdownSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                  {filteredDropdownSections.map(section => (
+                    <button
+                      key={section.name}
+                      onClick={() => {
+                        setSelectedSection(section.name);
+                        setIsSectionOpen(false);
+                        setDropdownSearch('');
+                      }}
+                      className={cn(
+                         "flex items-center justify-between w-full px-6 py-3 text-sm transition-colors border-b last:border-0 border-slate-50",
+                        selectedSection === section.name 
+                          ? "bg-blue-600 text-white font-bold" 
+                          : "text-slate-600 hover:bg-slate-50"
+                      )}
+                    >
+                      <span className={cn(
+                        "font-bold",
+                        selectedSection === section.name ? "text-white" : "text-black"
+                      )}>{section.name}</span>
+                      <span className={cn(
+                        "text-[10px] font-bold uppercase",
+                        selectedSection === section.name ? "text-blue-100" : "text-slate-500"
+                      )}>{section.yearLevel}</span>
+                    </button>
+                  ))}
+                  {filteredDropdownSections.length === 0 && (
+                    <div className="px-6 py-8 text-center text-sm text-slate-400">
+                      {dropdownSearch ? "No matching sections" : "No sections added yet."}
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -408,11 +497,24 @@ export default function Scheduling() {
                   <Button onClick={addSection} className="w-full h-11">Add Section</Button>
                 </div>
 
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Current Sections</h4>
-                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-                    {sections.filter(s => s && s.name && s.name.trim() !== '').map(section => (
-                      <div key={section.id || section.name} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 group shadow-sm">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Current Sections</h4>
+                    <div className="relative w-40">
+                      <input
+                        type="text"
+                        placeholder="Search..."
+                        value={sectionSearch}
+                        onChange={e => setSectionSearch(e.target.value)}
+                        className="w-full pl-7 pr-3 py-1.5 bg-slate-100 border-none rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                    </div>
+                  </div>
+                  
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {filteredSections.map(section => (
+                      <div key={section.id || section.name} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 group shadow-sm hover:border-blue-200 transition-colors">
                         <div className="flex flex-col">
                           <span className="text-sm font-black text-black leading-tight">{section.name}</span>
                           <span className="text-[10px] text-slate-800 font-bold uppercase tracking-tight">{section.yearLevel}</span>
@@ -425,15 +527,22 @@ export default function Scheduling() {
                         </button>
                       </div>
                     ))}
-                    {sections.length === 0 && (
-                      <p className="text-center py-4 text-xs text-slate-400">No sections found.</p>
+                    {filteredSections.length === 0 && (
+                      <div className="text-center py-10">
+                        <p className="text-xs text-slate-400">
+                          {sectionSearch ? `No sections matching "${sectionSearch}"` : "No sections found."}
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-50 flex justify-end">
-                <Button onClick={() => setIsManagingSections(false)}>Done</Button>
+              <div className="p-6 bg-slate-50 flex justify-between gap-3">
+                <Button variant="outline" onClick={seedDefaultSections} className="text-[10px] font-bold uppercase tracking-widest h-11">
+                  Seed Defaults
+                </Button>
+                <Button onClick={() => setIsManagingSections(false)} className="h-11">Done</Button>
               </div>
             </motion.div>
           </div>

@@ -10,7 +10,9 @@ import {
   Bell,
   Plus,
   BookOpen,
-  Info
+  Info,
+  Timer,
+  Download
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -23,11 +25,13 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
-import { MOCK_ENROLLMENTS, CHART_DATA } from '@/src/mockData';
+import { CHART_DATA } from '@/src/mockData';
 import { cn } from '@/src/utils/cn';
 import { useNavigate } from 'react-router-dom';
-import { EnrollmentRecord, User as UserType } from '../types';
-import { useState, useEffect } from 'react';
+import { EnrollmentRecord, User as UserType, SystemSettings } from '../types';
+import { useState, useEffect, useMemo } from 'react';
+import { db } from '@/src/lib/firebase';
+import { doc, getDoc, collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 
 const STATS = [
   { label: 'Total Students', value: '1,284', icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '+12.5%' },
@@ -44,77 +48,70 @@ export default function Dashboard() {
   });
   const isAdmin = user?.role === 'admin';
 
-  const [enrollmentRecord, setEnrollmentRecord] = useState<EnrollmentRecord | null>(() => {
-    if (isAdmin || !user) return null;
-    const allSaved = localStorage.getItem('cdm_all_enrollments');
-    if (allSaved) {
-      const all: EnrollmentRecord[] = JSON.parse(allSaved);
-      return all.find(r => r.id === user.username) || null;
-    }
-    return null;
-  });
+  const [stats, setStats] = useState(STATS);
+  const [recentEnrollments, setRecentEnrollments] = useState<EnrollmentRecord[]>([]);
+  const [enrollmentRecord, setEnrollmentRecord] = useState<EnrollmentRecord | null>(null);
+  const [settings, setSettings] = useState<SystemSettings | null>(null);
 
   useEffect(() => {
-    if (!isAdmin && user) {
-      const allSaved = localStorage.getItem('cdm_all_enrollments');
-      if (allSaved) {
-        const all: EnrollmentRecord[] = JSON.parse(allSaved);
-        const mine = all.find(r => r.id === user.username);
-        if (mine) setEnrollmentRecord(mine);
+    const fetchData = async () => {
+      if (!user) return;
+      
+      try {
+        // Fetch Settings
+        const settingsSnap = await getDoc(doc(db, 'settings', 'enrollment'));
+        if (settingsSnap.exists()) {
+          setSettings(settingsSnap.data() as SystemSettings);
+        }
+
+        if (isAdmin) {
+          const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
+          const querySnapshot = await getDocs(q);
+          const allDocs = querySnapshot.docs.map(doc => doc.data() as EnrollmentRecord);
+          
+          const total = allDocs.length;
+          const approved = allDocs.filter(d => d.status === 'Enrolled').length;
+          const pending = allDocs.filter(d => d.status === 'Validating').length;
+          const active = allDocs.filter(d => d.status === 'Approved' || d.status === 'Enrolled').length;
+
+          setStats([
+            { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '--' },
+            { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: '--' },
+            { label: 'Approved', value: approved.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '--' },
+            { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
+          ]);
+          setRecentEnrollments(allDocs.slice(0, 5));
+        } else {
+          const docRef = doc(db, 'enrollments', user.username);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            setEnrollmentRecord(docSnap.data() as EnrollmentRecord);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
       }
-    }
+    };
+
+    fetchData();
   }, [isAdmin, user]);
+
+  const enrollmentStatus = useMemo(() => {
+    if (!settings?.enrollmentStartDate || !settings?.enrollmentEndDate) return 'Not Set';
+    const now = new Date();
+    const start = new Date(settings.enrollmentStartDate);
+    const end = new Date(settings.enrollmentEndDate);
+
+    if (now < start) return 'Upcoming';
+    if (now > end) return 'Ended';
+    return 'Active';
+  }, [settings]);
 
   const studentStatus = enrollmentRecord?.status || 'Validating';
 
-  const toggleStatus = () => {
-    if (!user) return;
-    const nextStatus = studentStatus === 'Validating' ? 'Enrolled' : 'Validating';
-    
-    // Update local state
-    const newRecord: EnrollmentRecord = enrollmentRecord ? {
-      ...enrollmentRecord,
-      status: nextStatus,
-      studentInfo: {
-        ...enrollmentRecord.studentInfo,
-        studentId: nextStatus === 'Enrolled' ? '2026-00421' : '',
-        section: nextStatus === 'Enrolled' ? 'BSIT - 1A' : ''
-      }
-    } : {
-      id: user.username,
-      studentInfo: { firstName: user.name, lastName: '', studentId: nextStatus === 'Enrolled' ? '2026-00421' : '', email: user.username + '@example.com' } as any,
-      type: 'Regular',
-      course: 'BSIT',
-      yearLevel: '1st Year',
-      status: nextStatus,
-      enrolledAt: new Date().toISOString()
-    };
-
-    setEnrollmentRecord(newRecord);
-
-    // Update global store
-    const allSaved = localStorage.getItem('cdm_all_enrollments');
-    let all: EnrollmentRecord[] = allSaved ? JSON.parse(allSaved) : [];
-    const idx = all.findIndex(r => r.id === user.username);
-    if (idx >= 0) all[idx] = newRecord;
-    else all.push(newRecord);
-    localStorage.setItem('cdm_all_enrollments', JSON.stringify(all));
-  };
-
   return (
     <div className="space-y-8 text-left">
-      {/* Simulation Toggle for Demo (Only visible in Student view) */}
-      {!isAdmin && (
-        <div className="flex justify-end">
-          <button 
-            onClick={toggleStatus}
-            className="text-[10px] text-slate-400 hover:text-blue-500 font-bold uppercase tracking-widest flex items-center gap-1 group"
-          >
-            <div className="w-2 h-2 rounded-full bg-slate-300 group-hover:bg-blue-500" />
-            Simulate {studentStatus === 'Validating' ? 'Approval' : 'Validation'}
-          </button>
-        </div>
-      )}
+      {/* Dashboard Section */}
 
       {/* Welcome Section */}
       <motion.div
@@ -129,22 +126,25 @@ export default function Dashboard() {
           <h2 className="text-3xl font-bold mb-2">Welcome back, {user?.name || 'User'}!</h2>
           <p className="text-sm opacity-90">
             {isAdmin 
-              ? "The 1st Semester A.Y. 2026-2027 enrollment is currently active." 
+              ? `The ${settings?.academicYear || 'current'} enrollment is ${enrollmentStatus.toLowerCase()}.` 
               : "You are logged in to the CdM Student Portal. Stay updated with your academics."}
           </p>
         </div>
-        <div className="bg-white/10 px-6 py-4 rounded-2xl text-center backdrop-blur-md border border-white/10 relative z-10">
-          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">Enrollment Phase</p>
-          <p className="text-3xl font-black">{isAdmin ? "Phase 2" : "Active"}</p>
+        <div className="bg-white/10 px-6 py-4 rounded-2xl text-center backdrop-blur-md border border-white/10 relative z-10 min-w-[140px]">
+          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">Enrollment Status</p>
+          <p className={cn(
+            "text-2xl font-black uppercase tracking-tighter transition-colors",
+            enrollmentStatus === 'Active' ? "text-emerald-400" : 
+            enrollmentStatus === 'Upcoming' ? "text-amber-400" : "text-red-400"
+          )}>{enrollmentStatus}</p>
         </div>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl" />
       </motion.div>
 
       {isAdmin ? (
         <>
-          {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {STATS.map((stat, i) => (
+            {stats.map((stat, i) => (
               <motion.div
                 key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
@@ -255,35 +255,32 @@ export default function Dashboard() {
 
               <Card className="border-none shadow-sm">
                 <CardHeader>
-                  <CardTitle className="text-left">Recent Activity</CardTitle>
+                  <CardTitle className="text-left">Enrollment Period</CardTitle>
+                  <CardDescription>Official schedule for the current semester</CardDescription>
                 </CardHeader>
-                <CardContent className="p-0 text-left">
-                  <div className="divide-y divide-slate-100">
-                    {MOCK_ENROLLMENTS.slice(0, 3).map((enrollment, i) => (
-                      <div key={i} className="px-6 py-4 flex items-start gap-4">
-                        <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 font-bold">
-                          {enrollment.studentInfo.firstName[0]}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-slate-900">
-                            {enrollment.studentInfo.firstName} {enrollment.studentInfo.lastName}
-                          </p>
-                          <p className="text-xs text-slate-500">Enrolled in {enrollment.course}</p>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">2m ago</span>
+                <CardContent className="space-y-4">
+                  {settings ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Starts</span>
+                        <span className="text-xs font-black text-slate-700">{new Date(settings.enrollmentStartDate).toLocaleString()}</span>
                       </div>
-                    ))}
-                  </div>
-                  <div className="p-4 border-t border-slate-100">
-                    <Button variant="ghost" className="w-full text-slate-500 text-sm h-9">View All Activity</Button>
-                  </div>
+                      <div className="flex items-center justify-between py-2">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Ends</span>
+                        <span className="text-xs font-black text-slate-700">{new Date(settings.enrollmentEndDate).toLocaleString()}</span>
+                      </div>
+                      <Button variant="outline" className="w-full text-xs h-9 mt-2" onClick={() => navigate('/settings')}>Change Schedule</Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Settings not configured.</p>
+                  )}
                 </CardContent>
               </Card>
             </div>
           </div>
 
           {/* Recent Enrollments Table */}
-          <Card glass className="overflow-hidden border-none shadow-sm">
+          <Card glass className="overflow-hidden border-none shadow-sm text-left">
             <CardHeader className="flex flex-row items-center justify-between border-b border-slate-200/50">
               <div className="text-left">
                 <CardTitle>Recent Enrollments</CardTitle>
@@ -305,7 +302,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {MOCK_ENROLLMENTS.map((enrollment, i) => (
+                  {recentEnrollments.map((enrollment, i) => (
                     <tr key={i} className="hover:bg-slate-50/80 transition-colors group text-left">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -331,7 +328,7 @@ export default function Dashboard() {
                           {enrollment.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs font-medium text-slate-400">{enrollment.enrolledAt}</td>
+                      <td className="px-6 py-4 text-xs font-medium text-slate-400">{enrollment.enrolledAt.split('T')[0]}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -354,7 +351,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-900">Enrollment Status</h3>
-                    <p className="text-xs text-slate-500">Academic Year 2026-2027</p>
+                    <p className="text-xs text-slate-500">{settings?.academicYear || 'A.Y. 2026-2027'} - Sem: {settings?.semester || '1'}</p>
                   </div>
                 </div>
                 <div className="space-y-4">
@@ -372,11 +369,11 @@ export default function Dashboard() {
                     <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 space-y-2">
                        <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-500 font-medium">Assigned Section:</span>
-                        <span className="text-emerald-700 font-bold">{enrollmentRecord?.studentInfo.section || 'BSIT - 1A'}</span>
+                        <span className="text-emerald-700 font-bold">{enrollmentRecord?.section || enrollmentRecord?.studentInfo.section || 'Not Assigned'}</span>
                       </div>
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-500 font-medium">Student ID:</span>
-                        <span className="text-emerald-700 font-bold">{enrollmentRecord?.studentInfo.studentId || '2026-00421'}</span>
+                        <span className="text-emerald-700 font-bold">{enrollmentRecord?.studentId || enrollmentRecord?.studentInfo.studentId || 'Not Assigned'}</span>
                       </div>
                     </div>
                   ) : (
@@ -387,12 +384,22 @@ export default function Dashboard() {
 
                   <Button 
                     className={cn(
-                      "w-full",
-                      studentStatus === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700" : "bg-green-700 hover:bg-green-800"
+                      "w-full py-6 gap-2 text-base font-bold shadow-lg transition-all",
+                      studentStatus === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200" : "bg-green-700 hover:bg-green-800 shadow-green-200"
                     )}
                     onClick={() => navigate('/enroll')}
+                    disabled={enrollmentStatus !== 'Active' && studentStatus !== 'Enrolled'}
                   >
-                    {studentStatus === 'Enrolled' ? 'View Enrollment Form' : 'Update Information'}
+                    {studentStatus === 'Enrolled' ? (
+                      <>
+                        <Download className="h-5 w-5" />
+                        Print COE / Reg Form
+                      </>
+                    ) : (
+                      enrollmentStatus === 'Upcoming' ? 'Enrollment Not Yet Open' :
+                      enrollmentStatus === 'Ended' ? 'Enrollment Closed' :
+                      'Proceed to Enrollment'
+                    )}
                   </Button>
                 </div>
               </Card>
@@ -400,19 +407,26 @@ export default function Dashboard() {
               <Card glass className="p-6">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="h-12 w-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
-                    <Calendar className="h-6 w-6" />
+                    <Timer className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-900">Today's Schedule</h3>
-                    <p className="text-xs text-slate-500">Wait for enrollment to view</p>
+                    <h3 className="font-bold text-slate-900">Remaining Time</h3>
+                    <p className="text-xs text-slate-500">{enrollmentStatus === 'Active' ? 'Time left to enroll' : 'Period ended'}</p>
                   </div>
                 </div>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-center h-20 text-slate-300">
-                    <Clock className="h-10 w-10 opacity-20" />
-                  </div>
-                  <Button variant="outline" className="w-full" onClick={() => navigate('/scheduling')}>
-                    View All Schedules
+                  {settings ? (
+                    <div className="p-4 bg-slate-50 rounded-2xl text-center">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-1">Ends At</p>
+                      <p className="text-sm font-black text-slate-900">{new Date(settings.enrollmentEndDate).toLocaleDateString()} {new Date(settings.enrollmentEndDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-20 text-slate-300">
+                      <Clock className="h-10 w-10 opacity-20" />
+                    </div>
+                  )}
+                  <Button variant="outline" className="w-full" onClick={() => navigate('/steps')}>
+                    Enrollment Guide
                   </Button>
                 </div>
               </Card>
@@ -458,7 +472,11 @@ export default function Dashboard() {
                     <span className="text-xs font-bold text-green-800">Enrollment Period</span>
                   </div>
                   <p className="text-xs text-green-700 leading-relaxed">
-                    Enrollment for the first semester is open from May 1 to June 15, 2026. Please ensure your documents are complete.
+                    {settings ? (
+                      `The ${settings.academicYear} enrollment is ${enrollmentStatus.toLowerCase()}. It ends on ${new Date(settings.enrollmentEndDate).toLocaleDateString()}.`
+                    ) : (
+                      "Enrollment for the first semester is open from May 1 to June 15, 2026. Please ensure your documents are complete."
+                    )}
                   </p>
                 </div>
                 <Button variant="ghost" className="w-full text-green-700 hover:bg-green-100">View More</Button>

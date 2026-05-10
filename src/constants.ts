@@ -16,7 +16,7 @@ export const COURSES: { id: Course; title: string; description: string; duration
     slots: 40
   },
   {
-    id: 'BEEd GEN',
+    id: 'BEEd Gen',
     title: 'BE in Elementary Education (General)',
     description: 'Core pedagogies and strategies for all elementary grade levels.',
     duration: '4 Years',

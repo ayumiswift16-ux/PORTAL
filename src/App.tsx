@@ -17,22 +17,42 @@ import Scheduling from './pages/Scheduling';
 import Steps from './pages/Steps';
 import { MainLayout } from './components/layout/MainLayout';
 import { PageTransition } from './components/layout/PageTransition';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('cdm_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const isAdmin = firebaseUser.email === 'davevenzon789@gmail.com' || 
+                        !!firebaseUser.email?.match(/^admin[1-5]@school\.portal$/);
+        const appUser: User = {
+          username: firebaseUser.uid,
+          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          role: isAdmin ? 'admin' : 'student'
+        };
+        setUser(appUser);
+        localStorage.setItem('cdm_user', JSON.stringify(appUser));
+      } else {
+        setUser(null);
+        localStorage.removeItem('cdm_user');
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('cdm_user');
-    setUser(null);
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   if (isLoading) {

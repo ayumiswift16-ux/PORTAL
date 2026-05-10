@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      // For this app, we'll check if the user's email is the one used to set up the app 
+      // or if they match the specific admin accounts requested.
+      return isSignedIn() && (
+        request.auth.token.email == 'davevenzon789@gmail.com' ||
+        request.auth.token.email.matches('^admin[1-5]@school\\.portal$')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Enrollment Validation
+    function isValidEnrollment(data) {
+      return data.studentInfo is map &&
+             data.studentInfo.firstName is string && data.studentInfo.firstName.size() <= 100 &&
+             data.studentInfo.lastName is string && data.studentInfo.lastName.size() <= 100 &&
+             data.type in ['Regular', 'Irregular', 'Returnee'] &&
+             data.status in ['Pending', 'Approved', 'Rejected', 'Enrolled', 'Validating'];
+    }
+
+    // 1. Enrollments
+    match /enrollments/{enrollmentId} {
+      allow read: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      
+      allow create: if (isAdmin() || (isEmailVerified() && incoming().userId == request.auth.uid)) && 
+                      isValidEnrollment(incoming()) && 
+                      incoming().status == 'Validating';
+
+      allow update: if (isAdmin() && isValidEnrollment(incoming())) || (
+        isEmailVerified() && 
+        existing().userId == request.auth.uid && 
+        isValidEnrollment(incoming()) &&
+        existing().status != 'Enrolled' &&
+        incoming().userId == existing().userId &&
+        incoming().status == existing().status &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['studentInfo', 'type', 'course', 'yearLevel', 'enrolledAt'])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Sections
+    match /sections/{sectionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 3. Schedules
+    match /schedules/{scheduleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 4. Settings
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -2,7 +2,14 @@ export type EnrollmentType = 'Regular' | 'Irregular' | 'Returnee';
 
 export type YearLevel = '1st Year' | '2nd Year' | '3rd Year' | '4th Year';
 
-export type Course = 'BSIT' | 'BSCPE' | 'BEEd GEN' | 'BSBA HRM' | 'BS ENTREP' | 'BECEd' | 'BECEd SCI' | 'BTLED-ICT' | 'TCP';
+export type Course = 'BSIT' | 'BSCPE' | 'BEEd Gen' | 'BSBA HRM' | 'BS ENTREP' | 'BECEd' | 'BECEd SCI' | 'BTLED-ICT' | 'TCP';
+
+export interface DocumentUploads {
+  summaryOfGrades?: string;
+  goodMoral?: string;
+  twoByTwoPhoto?: string;
+  birthCertificate?: string;
+}
 
 export interface StudentInfo {
   firstName: string;
@@ -17,16 +24,67 @@ export interface StudentInfo {
   studentId: string;
   yearLevel: YearLevel;
   section?: string;
+  documents?: DocumentUploads;
 }
 
 export interface EnrollmentRecord {
   id: string;
+  userId?: string;
   studentInfo: StudentInfo;
   type: EnrollmentType;
   course: Course;
   yearLevel: YearLevel;
   status: 'Pending' | 'Approved' | 'Rejected' | 'Enrolled' | 'Validating';
   enrolledAt: string;
+  studentId?: string;
+  section?: string;
+  registrationForm?: RegistrationForm;
+}
+
+export interface RegistrationForm {
+  academicYear: string;
+  semester: string;
+  program: string;
+  institute: string;
+  courses: EnrolledCourse[];
+  assessedFees: AssessedFees;
+  paymentDetails: PaymentDetails;
+}
+
+export interface EnrolledCourse {
+  code: string;
+  description: string;
+  section: string;
+  lec: number;
+  lab: number;
+  compLab: number;
+  units: number;
+  rate: number;
+  fee: number;
+}
+
+export interface AssessedFees {
+  tuition: number;
+  admission: number;
+  athletic: number;
+  computer: number;
+  cultural: number;
+  developmental: number;
+  guidance: number;
+  laboratory: number;
+  library: number;
+  medicalDental: number;
+  nstp: number;
+  registration: number;
+  schoolId: number;
+  handbook: number;
+  total: number;
+}
+
+export interface PaymentDetails {
+  mode: string;
+  amount: string;
+  date: string;
 }
 
 export interface User {
@@ -51,4 +109,11 @@ export interface ScheduleItem {
   endTime: string;   // HH:mm
   instructor: string;
   room: string;
+}
+
+export interface SystemSettings {
+  enrollmentStartDate: string;
+  enrollmentEndDate: string;
+  academicYear: string;
+  semester: string;
 }

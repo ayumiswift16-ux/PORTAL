@@ -83,7 +83,7 @@ export const MOCK_ENROLLMENTS: EnrollmentRecord[] = [
       section: 'BEEd - 4A'
     },
     type: 'Returnee',
-    course: 'BEEd GEN',
+    course: 'BEEd Gen',
     yearLevel: '4th Year',
     status: 'Enrolled',
     enrolledAt: '2026-05-06 11:45',

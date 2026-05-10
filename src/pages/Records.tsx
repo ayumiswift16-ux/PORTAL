@@ -16,29 +16,65 @@ import {
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
-import { MOCK_ENROLLMENTS } from '@/src/mockData';
 import { cn } from '@/src/utils/cn';
 import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord } from '@/src/types';
 import toast from 'react-hot-toast';
+import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { COURSES } from '@/src/constants';
 
 export default function Records() {
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCourse, setFilterCourse] = useState('All');
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
+  const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<EnrollmentRecord | null>(null);
   const [validationData, setValidationData] = useState({ studentId: '', section: '' });
+  const [registrationData, setRegistrationData] = useState<any>(null);
+  const [sections, setSections] = useState<{name: string, yearLevel: string}[]>([]);
+  const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
   
   const navigate = useNavigate();
 
+  const filteredSectionsForStudent = useMemo(() => {
+    if (!selectedRecord) return [];
+    // Filter sections by year level and check if the section name includes the course ID
+    return sections.filter(section => 
+      section.yearLevel === selectedRecord.yearLevel && 
+      section.name.toLowerCase().includes(selectedRecord.course.toLowerCase())
+    );
+  }, [sections, selectedRecord]);
+
   useEffect(() => {
-    // Load both mock and student-submitted data
-    const savedEnrollments = localStorage.getItem('cdm_all_enrollments');
-    const studentApps: EnrollmentRecord[] = savedEnrollments ? JSON.parse(savedEnrollments) : [];
+    const fetchEnrollments = async () => {
+      try {
+        const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const data = querySnapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        })) as EnrollmentRecord[];
+        setEnrollments(data);
+      } catch (error) {
+        console.error("Error fetching enrollments:", error);
+        toast.error("Failed to load records from database.");
+      }
+    };
+
+    const fetchSections = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'sections'));
+        const sectionData = querySnapshot.docs.map(doc => doc.data() as {name: string, yearLevel: string});
+        setSections(sectionData);
+      } catch (error) {
+        console.error("Error fetching sections:", error);
+      }
+    };
     
-    // Combine mock data with session data (ensuring unique ids for safety)
-    setEnrollments([...studentApps, ...MOCK_ENROLLMENTS]);
+    fetchEnrollments();
+    fetchSections();
   }, []);
 
   const filteredEnrollments = useMemo(() => {
@@ -56,43 +92,115 @@ export default function Records() {
   const handleOpenValidate = (record: EnrollmentRecord) => {
     setSelectedRecord(record);
     setValidationData({ 
-      studentId: record.studentInfo.studentId || '', 
-      section: record.studentInfo.section || '' 
+      studentId: record.studentId || record.studentInfo.studentId || '', 
+      section: record.section || record.studentInfo.section || '' 
     });
+    
+    // Initialize registration form if not exists
+    if (record.registrationForm) {
+      setRegistrationData(record.registrationForm);
+    } else {
+      setRegistrationData({
+        academicYear: '2025-2026',
+        semester: '1',
+        program: record.course,
+        institute: 'None entered',
+        courses: [],
+        assessedFees: {
+          tuition: 0, admission: 0, athletic: 0, computer: 0, cultural: 0,
+          developmental: 0, guidance: 0, laboratory: 0, library: 0,
+          medicalDental: 0, nstp: 0, registration: 0, schoolId: 0,
+          handbook: 0, total: 0
+        },
+        paymentDetails: { mode: 'UNIFFAST', amount: 'c/o UNIFAST', date: new Date().toLocaleDateString() }
+      });
+    }
+    
     setIsValidationModalOpen(true);
   };
 
-  const handleValidateSubmit = () => {
-    if (!selectedRecord) return;
+  const handleRegistrationSubmit = async () => {
+    if (!selectedRecord || !registrationData) return;
     
-    const updatedEnrollments = enrollments.map(record => {
-      if (record.id === selectedRecord.id) {
-        return {
-          ...record,
-          status: 'Enrolled',
-          studentInfo: {
-            ...record.studentInfo,
-            studentId: validationData.studentId,
-            section: validationData.section
-          }
-        };
-      }
-      return record;
-    });
+    try {
+      const docRef = doc(db, 'enrollments', selectedRecord.id);
+      const updates = {
+        status: 'Enrolled' as const,
+        studentId: validationData.studentId,
+        section: validationData.section,
+        studentInfo: {
+          ...selectedRecord.studentInfo,
+          studentId: validationData.studentId,
+          section: validationData.section
+        },
+        registrationForm: registrationData
+      };
+      
+      await updateDoc(docRef, updates);
 
-    setEnrollments(updatedEnrollments);
-    localStorage.setItem('cdm_all_enrollments', JSON.stringify(updatedEnrollments.filter(r => !MOCK_ENROLLMENTS.some(m => m.id === r.id))));
-    setIsValidationModalOpen(false);
-    toast.success(selectedRecord.status === 'Enrolled' ? 'Information updated successfully!' : 'Student verified and enrolled!');
+      setEnrollments(prev => prev.map(record => {
+        if (record.id === selectedRecord.id) {
+          return {
+            ...record,
+            ...updates
+          };
+        }
+        return record;
+      }));
+
+      setIsRegistrationModalOpen(false);
+      setIsValidationModalOpen(false);
+      toast.success('Registration Form Saved successfully!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `enrollments/${selectedRecord.id}`);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleValidateSubmit = async () => {
+    if (!selectedRecord) return;
+    
+    try {
+      const docRef = doc(db, 'enrollments', selectedRecord.id);
+      const updates = {
+        status: 'Enrolled' as const,
+        studentId: validationData.studentId,
+        section: validationData.section,
+        studentInfo: {
+          ...selectedRecord.studentInfo,
+          studentId: validationData.studentId,
+          section: validationData.section
+        }
+      };
+      
+      await updateDoc(docRef, updates);
+
+      setEnrollments(prev => prev.map(record => {
+        if (record.id === selectedRecord.id) {
+          return {
+            ...record,
+            ...updates
+          };
+        }
+        return record;
+      }));
+
+      setIsValidationModalOpen(false);
+      toast.success(selectedRecord.status === 'Enrolled' ? 'Information updated successfully!' : 'Student verified and enrolled!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `enrollments/${selectedRecord.id}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this record?')) return;
     
-    const updatedEnrollments = enrollments.filter(r => r.id !== id);
-    setEnrollments(updatedEnrollments);
-    localStorage.setItem('cdm_all_enrollments', JSON.stringify(updatedEnrollments.filter(r => !MOCK_ENROLLMENTS.some(m => m.id === r.id))));
-    toast.success('Record deleted successfully');
+    try {
+      await deleteDoc(doc(db, 'enrollments', id));
+      setEnrollments(prev => prev.filter(r => r.id !== id));
+      toast.success('Record deleted successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `enrollments/${id}`);
+    }
   };
 
   return (
@@ -137,11 +245,9 @@ export default function Records() {
                   onChange={(e) => setFilterCourse(e.target.value)}
                 >
                   <option value="All">All Courses</option>
-                  <option value="BSIT">BSIT</option>
-                  <option value="BSCS">BSCS</option>
-                  <option value="BSBA">BSBA</option>
-                  <option value="BSED">BSED</option>
-                  <option value="Criminology">Criminology</option>
+                  {COURSES.map(course => (
+                    <option key={course.id} value={course.id}>{course.id}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -178,8 +284,28 @@ export default function Records() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <p className="text-sm font-bold text-slate-700">{enrollment.course}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{enrollment.yearLevel}</p>
+                      <div className="flex flex-col">
+                        <p className="text-sm font-bold text-slate-700">{enrollment.course}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{enrollment.yearLevel}</p>
+                          {enrollment.studentInfo.documents && (enrollment.studentInfo.documents.summaryOfGrades || enrollment.studentInfo.documents.goodMoral || enrollment.studentInfo.documents.twoByTwoPhoto || enrollment.studentInfo.documents.birthCertificate) && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedRecord(enrollment);
+                                setValidationData({
+                                  studentId: enrollment.studentId || '',
+                                  section: enrollment.section || ''
+                                });
+                              }}
+                              className="flex items-center gap-0.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-200 transition-colors cursor-pointer active:scale-95" 
+                              title="Click to view uploaded documents"
+                            >
+                              DOCS
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
@@ -301,7 +427,38 @@ export default function Records() {
                   <p className="text-xs text-blue-600">{selectedRecord?.course} - {selectedRecord?.yearLevel}</p>
                 </div>
 
-                <div className="space-y-4">
+                {selectedRecord?.studentInfo.documents && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Submitted Documents</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
+                        const docImg = selectedRecord.studentInfo.documents?.[docKey as keyof typeof selectedRecord.studentInfo.documents];
+                        const label = docKey === 'twoByTwoPhoto' ? '2x2 Photo' : docKey.replace(/([A-Z])/g, ' $1').trim();
+                        
+                        return (
+                          <div key={docKey} className="space-y-1">
+                            <p className="text-[9px] font-bold text-slate-500 uppercase truncate px-1">{label}</p>
+                            <div 
+                              className={cn(
+                                "aspect-square rounded-lg border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-300 transition-colors",
+                                !docImg && "opacity-50 grayscale"
+                              )}
+                              onClick={() => docImg && setPreviewImage({ url: docImg, title: label })}
+                            >
+                              {docImg ? (
+                                <img src={docImg} alt={label} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-[8px] text-slate-400 font-bold px-2 text-center">NOT PROVIDED</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-4 pt-2">
                   <Input 
                     label="Assign Student ID"
                     placeholder="e.g. 2026-XXXXX"
@@ -316,15 +473,14 @@ export default function Records() {
                       onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
                     >
                       <option value="">Select Section</option>
-                      <optgroup label="BSIT">
-                        <option value="BSIT - 1A">BSIT - 1A</option>
-                        <option value="BSIT - 1B">BSIT - 1B</option>
-                        <option value="BSIT - 2A">BSIT - 2A</option>
-                      </optgroup>
-                      <optgroup label="BSCS">
-                        <option value="BSCS - 1A">BSCS - 1A</option>
-                        <option value="BSCS - 2A">BSCS - 2A</option>
-                      </optgroup>
+                      {filteredSectionsForStudent.map((section) => (
+                        <option key={section.name} value={section.name}>
+                          {section.name}
+                        </option>
+                      ))}
+                      {filteredSectionsForStudent.length === 0 && (
+                        <option value="" disabled>No available sections for this level/course</option>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -339,11 +495,286 @@ export default function Records() {
                     "flex-1",
                     selectedRecord?.status === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700" : "bg-[#064e3b] hover:bg-[#053d2e]"
                   )}
-                  onClick={handleValidateSubmit}
+                  onClick={() => setIsRegistrationModalOpen(true)}
                   disabled={!validationData.studentId || !validationData.section}
                 >
-                  {selectedRecord?.status === 'Enrolled' ? 'Update Record' : 'Approve Enrollment'}
+                  {selectedRecord?.status === 'Enrolled' ? 'Update Form' : 'Fill Registration Form'}
                 </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Registration Form Modal */}
+      <AnimatePresence>
+        {isRegistrationModalOpen && registrationData && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 30 }}
+              className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl overflow-hidden text-left flex flex-col max-h-[95vh]"
+            >
+              <div className="p-6 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/20">
+                    <Edit3 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">Official Registration Form Editor</h3>
+                    <p className="text-sm text-slate-500">Student: {selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsRegistrationModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                  <X className="h-5 w-5 text-slate-500" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-[#fafafa]">
+                {/* Header Information */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
+                  <Input 
+                    label="Academic Year" 
+                    value={registrationData.academicYear} 
+                    onChange={(e) => setRegistrationData({...registrationData, academicYear: e.target.value})} 
+                  />
+                  <Input 
+                    label="Semester" 
+                    value={registrationData.semester} 
+                    onChange={(e) => setRegistrationData({...registrationData, semester: e.target.value})} 
+                  />
+                  <Input 
+                    label="Program" 
+                    value={registrationData.program} 
+                    onChange={(e) => setRegistrationData({...registrationData, program: e.target.value})} 
+                  />
+                  <Input 
+                    label="Institute" 
+                    value={registrationData.institute} 
+                    onChange={(e) => setRegistrationData({...registrationData, institute: e.target.value})} 
+                  />
+                </div>
+
+                {/* Courses Enrolled */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                    <h4 className="font-bold text-slate-900">Courses Enrolled</h4>
+                    <Button size="sm" onClick={() => {
+                      const newCourse = { code: '', description: '', section: validationData.section, lec: 0, lab: 0, compLab: 0, units: 3, rate: 250, fee: 750 };
+                      setRegistrationData({
+                        ...registrationData,
+                        courses: [...registrationData.courses, newCourse]
+                      });
+                    }}>Add Course</Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="bg-slate-100/50 text-[10px] uppercase font-bold text-slate-500">
+                          <th className="px-4 py-3 text-left">Code</th>
+                          <th className="px-4 py-3 text-left">Description</th>
+                          <th className="px-4 py-3">Section</th>
+                          <th className="px-4 py-3">Lec</th>
+                          <th className="px-4 py-3">Lab</th>
+                          <th className="px-4 py-3">Comp</th>
+                          <th className="px-4 py-3">Units</th>
+                          <th className="px-4 py-3">Rate</th>
+                          <th className="px-4 py-3">Fee</th>
+                          <th className="px-2 py-3 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {registrationData.courses.map((course: any, idx: number) => (
+                          <tr key={idx}>
+                            <td className="p-2"><input className="w-full p-2 bg-slate-50 rounded border-none text-xs" value={course.code} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].code = e.target.value;
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input className="w-full p-2 bg-slate-50 rounded border-none text-xs" value={course.description} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].description = e.target.value;
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input className="w-16 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.section} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].section = e.target.value;
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.lec} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].lec = Number(e.target.value);
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.lab} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].lab = Number(e.target.value);
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.compLab} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].compLab = Number(e.target.value);
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.units} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].units = Number(e.target.value);
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2"><input type="number" className="w-16 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.rate} onChange={(e) => {
+                              const newCourses = [...registrationData.courses];
+                              newCourses[idx].rate = Number(e.target.value);
+                              newCourses[idx].fee = newCourses[idx].units * newCourses[idx].rate;
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} /></td>
+                            <td className="p-2 text-xs font-bold px-4">₱{course.fee.toLocaleString()}</td>
+                            <td className="p-2"><button onClick={() => {
+                              const newCourses = registrationData.courses.filter((_: any, i: number) => i !== idx);
+                              setRegistrationData({...registrationData, courses: newCourses});
+                            }} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 text-right">
+                    <p className="text-sm font-bold text-slate-700">Total Units: <span className="text-blue-600">{registrationData.courses.reduce((acc: number, c: any) => acc + c.units, 0)}</span></p>
+                  </div>
+                </div>
+
+                {/* Fees and Payment */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+                    <h4 className="font-bold text-slate-900 pb-2 border-b border-slate-100">Assessed Fees</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      {Object.keys(registrationData.assessedFees).map((key) => {
+                        if (key === 'total') return null;
+                        return (
+                          <div key={key} className="flex items-center justify-between gap-4">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">{key.replace(/([A-Z])/g, ' $1')}</label>
+                            <input 
+                              type="number" 
+                              className="w-24 p-2 bg-slate-50 rounded border-none text-xs text-right font-bold" 
+                              value={registrationData.assessedFees[key]} 
+                              onChange={(e) => {
+                                const newFees = {...registrationData.assessedFees, [key]: Number(e.target.value)};
+                                const total = Object.keys(newFees).reduce((acc, k) => k === 'total' ? acc : acc + newFees[k], 0);
+                                setRegistrationData({...registrationData, assessedFees: {...newFees, total}});
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <p className="font-black text-slate-900 uppercase">Total Amount</p>
+                      <p className="text-xl font-black text-emerald-600">₱{registrationData.assessedFees.total.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+                    <h4 className="font-bold text-slate-900 pb-2 border-b border-slate-100">Payment Details</h4>
+                    <div className="space-y-4">
+                      <Input 
+                        label="Mode of Payment" 
+                        value={registrationData.paymentDetails.mode} 
+                        onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, mode: e.target.value}})} 
+                      />
+                      <Input 
+                        label="Amount Paid" 
+                        value={registrationData.paymentDetails.amount} 
+                        onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, amount: e.target.value}})} 
+                      />
+                      <Input 
+                        label="Date Paid" 
+                        type="date"
+                        value={registrationData.paymentDetails.date} 
+                        onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, date: e.target.value}})} 
+                      />
+                    </div>
+                    
+                    <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex items-start gap-4">
+                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-blue-900 mb-1">Administrative Note</p>
+                        <p className="text-xs text-blue-700 leading-relaxed">Saving this form will finalize the student's enrollment status. This data will be visible on the student's dashboard.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setIsRegistrationModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="bg-[#064e3b] hover:bg-[#053d2e] px-8" onClick={handleRegistrationSubmit}>
+                  Save & Finalize Enrollment
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Image Preview Lightbox */}
+      <AnimatePresence>
+        {previewImage && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+              onClick={() => setPreviewImage(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative max-w-[95vw] max-h-[95vh] w-full h-full flex flex-col items-center justify-center"
+            >
+              <div className="absolute top-4 right-4 z-10 flex gap-2">
+                <button 
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.href = previewImage.url;
+                    link.download = `${previewImage.title.toLowerCase().replace(/\s+/g, '_')}.png`;
+                    link.click();
+                  }}
+                  className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors"
+                  title="Download Document"
+                >
+                  <Download className="h-5 w-5" />
+                </button>
+                <button 
+                  onClick={() => setPreviewImage(null)}
+                  className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="w-full h-full flex items-center justify-center p-4 md:p-12">
+                <img 
+                  src={previewImage.url} 
+                  alt={previewImage.title}
+                  className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-2xl"
+                />
+              </div>
+
+              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+                <h4 className="text-white font-bold text-xl drop-shadow-md">{previewImage.title}</h4>
+                <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Full Image View</p>
               </div>
             </motion.div>
           </div>
