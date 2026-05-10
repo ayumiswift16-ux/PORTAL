@@ -79,7 +79,7 @@ export default function Login({ onLogin }: LoginProps) {
             className="mb-1"
           >
             <img 
-              src="cdm-logo.png" 
+              src={`${import.meta.env.BASE_URL}cdm-logo.png`} 
               alt="Colegio de Montalban Logo" 
               className="h-20 w-20 object-contain"
               referrerPolicy="no-referrer"

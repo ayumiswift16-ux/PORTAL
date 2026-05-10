@@ -232,8 +232,8 @@ export default function Enroll() {
   if (enrollmentStatus === 'Enrolled' && enrollmentRecord?.registrationForm) {
     const rf = enrollmentRecord.registrationForm;
     return (
-      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <div className="flex items-center justify-between no-print">
+      <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 print:max-w-none print:m-0 print:p-0">
+        <div className="flex items-center justify-between print:hidden">
           <div>
             <h2 className="text-3xl font-black text-slate-900">Official Registration Form</h2>
             <p className="text-slate-500">Your enrollment has been finalized. Download or print your official form below.</p>
@@ -244,11 +244,11 @@ export default function Enroll() {
           </Button>
         </div>
 
-        <Card className="bg-white border-none shadow-2xl relative overflow-hidden print:shadow-none print:p-0 p-1 md:p-4">
+        <Card className="bg-white border-none shadow-2xl relative overflow-hidden print:shadow-none print:p-0 p-1 md:p-4 print:border-none">
           <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6">
             {/* Form Header */}
             <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6">
-              <img src="/cdm-logo.png" alt="Logo" className="h-24 w-24 object-contain" />
+              <img src={`${import.meta.env.BASE_URL}cdm-logo.png`} alt="Logo" className="h-24 w-24 object-contain" />
               <div className="flex-1 text-center md:text-left">
                 <h1 className="text-2xl font-black text-[#064e3b] tracking-tight leading-none">COLEGIO DE MONTALBAN</h1>
                 <p className="text-sm font-bold text-slate-700 mt-1 italic">Kasiglahan Village, San Jose, Rodriguez, Rizal</p>

@@ -25,16 +25,20 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <BackgroundBlobs />
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans print:bg-white">
+      <div className="print:hidden">
+        <BackgroundBlobs />
+      </div>
       
       {/* PC Sidebar */}
-      <Sidebar user={user} onLogout={onLogout} />
+      <div className="print:hidden">
+        <Sidebar user={user} onLogout={onLogout} />
+      </div>
 
       {/* Mobile Sidebar */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <>
+          <div className="print:hidden">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -57,15 +61,17 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                 <X className="h-6 w-6" />
               </button>
             </motion.div>
-          </>
+          </div>
         )}
       </AnimatePresence>
 
-      <div className="lg:pl-[240px] flex flex-col min-h-screen bg-glass-gradient">
-        <Navbar user={user} />
+      <div className="lg:pl-[240px] flex flex-col min-h-screen bg-glass-gradient print:pl-0 print:bg-white">
+        <div className="print:hidden">
+          <Navbar user={user} />
+        </div>
         
         {/* Mobile menu toggle */}
-        <div className="lg:hidden p-4 bg-white border-b border-slate-200">
+        <div className="lg:hidden p-4 bg-white border-b border-slate-200 print:hidden">
           <button 
             onClick={() => setIsMobileMenuOpen(true)}
             className="flex items-center gap-2 text-slate-600 font-medium"
@@ -75,7 +81,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
           </button>
         </div>
 
-        <main className="flex-1 p-4 md:p-8 overflow-x-hidden">
+        <main className="flex-1 p-4 md:p-8 overflow-x-hidden print:p-0">
           {children}
         </main>
       </div>
