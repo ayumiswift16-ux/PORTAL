@@ -247,7 +247,7 @@ export default function Enroll() {
         <Card className="bg-white border-none shadow-2xl relative overflow-visible print:shadow-none print:p-0 p-1 md:p-4 print:border-none print:overflow-visible">
           <div className="border-[3px] border-[#064e3b] p-6 md:p-8 space-y-6 print:m-0 print:border-2">
             {/* Form Header */}
-            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6 print:flex-row print:text-left print:gap-4 print:items-start">
+            <div className="flex flex-col md:flex-row items-center gap-6 mb-4 border-b-2 border-[#064e3b] pb-6 print:flex-row print:text-left print:gap-4 print:items-center">
               <img src={`${import.meta.env.BASE_URL}cdm-logo.png`} alt="Logo" className="h-24 w-24 object-contain" />
               <div className="flex-1 text-center md:text-left print:text-left">
                 <h1 className="text-2xl font-black text-[#064e3b] tracking-tight leading-none">COLEGIO DE MONTALBAN</h1>
@@ -344,13 +344,13 @@ export default function Enroll() {
               </table>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-8 items-start">
               {/* Assessed Fees (Page 1 Left) */}
-              <div className="border-2 border-[#064e3b] overflow-hidden">
-                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b]">
+              <div className="border-2 border-[#064e3b] overflow-hidden print:border-2">
+                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] print:bg-slate-50">
                   <p className="text-[10px] font-black uppercase text-[#064e3b]">Assessed Fees</p>
                 </div>
-                <div className="divide-y-2 divide-slate-100">
+                <div className="divide-y-2 divide-slate-100 print:divide-y-2">
                   {[
                     { label: 'Tuition Fee', val: rf.assessedFees.tuition },
                     { label: 'Admission Fee', val: rf.assessedFees.admission },
@@ -380,50 +380,50 @@ export default function Enroll() {
               </div>
 
               {/* Pledge and Signatures */}
-              <div className="space-y-6 flex flex-col h-full">
-                <div className="border-2 border-[#064e3b] p-4 text-left">
+              <div className="space-y-6 flex flex-col h-full print:space-y-4">
+                <div className="border-2 border-[#064e3b] p-4 text-left print:border-2">
                   <h4 className="text-[11px] font-black uppercase text-[#064e3b] mb-2">Pledge of Admission</h4>
-                  <p className="text-[9px] font-bold text-slate-700 leading-relaxed italic">
+                  <p className="text-[9px] font-bold text-slate-700 leading-relaxed italic print:text-slate-700">
                     In consideration of my admission to Colegio de Montalban and the privileges granted to students, I hereby pledge to abide by and comply with all rules and regulations established by the competent authorities of Colegio de Montalban.
                   </p>
                 </div>
 
-                <div className="mt-auto space-y-12">
-                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center">
+                <div className="mt-auto space-y-12 print:mt-12 print:space-y-10">
+                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center print:pt-6 print:border-t-2">
                     <p className="text-xs font-black uppercase underline underline-offset-4 decoration-2">{studentInfo.lastName}, {studentInfo.firstName} {studentInfo.middleName}</p>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Student's Name and Signature</p>
+                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] mt-1 print:text-slate-600">Student's Name and Signature</p>
                   </div>
-                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center">
+                  <div className="text-center pt-8 border-t-2 border-slate-900 flex flex-col items-center print:pt-6 print:border-t-2">
                     <p className="text-xs font-black uppercase underline underline-offset-4 decoration-2">JOHN MICHAEL R. QUINQUE, LPT</p>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Head, Office of the Registrar</p>
+                    <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] mt-1 print:text-slate-600">Head, Office of the Registrar</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Payment Details (Page 2 Box) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end pt-4">
-              <div className="border-2 border-[#064e3b] overflow-hidden max-w-sm">
-                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b]">
+            <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-8 items-end pt-4">
+              <div className="border-2 border-[#064e3b] overflow-hidden max-w-sm print:border-2">
+                <div className="bg-slate-50 p-2 border-b-2 border-[#064e3b] print:bg-slate-50">
                   <p className="text-[10px] font-black uppercase text-[#064e3b]">Payment Details</p>
                 </div>
-                <div className="divide-y-2 divide-slate-100">
-                  <div className="grid grid-cols-2 text-[10px]">
-                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Mode of Payment:</div>
+                <div className="divide-y-2 divide-slate-100 print:divide-y-2">
+                  <div className="grid grid-cols-2 text-[10px] print:grid-cols-2">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100 print:border-r-2 print:border-slate-300">Mode of Payment:</div>
                     <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.mode}</div>
                   </div>
-                  <div className="grid grid-cols-2 text-[10px]">
-                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Amount Paid:</div>
+                  <div className="grid grid-cols-2 text-[10px] print:grid-cols-2">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100 print:border-r-2 print:border-slate-300">Amount Paid:</div>
                     <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.amount}</div>
                   </div>
-                  <div className="grid grid-cols-2 text-[10px]">
-                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100">Date Paid:</div>
+                  <div className="grid grid-cols-2 text-[10px] print:grid-cols-2">
+                    <div className="p-2 font-black uppercase text-slate-500 border-r-2 border-slate-100 print:border-r-2 print:border-slate-300">Date Paid:</div>
                     <div className="p-2 font-black text-right uppercase text-[#064e3b]">{rf.paymentDetails.date}</div>
                   </div>
                 </div>
               </div>
-              <div className="text-right">
-                 <p className="text-[8px] font-bold text-slate-400 uppercase">Generated on: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+              <div className="text-right print:text-right">
+                 <p className="text-[8px] font-bold text-slate-400 uppercase">GENERATED ON: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
               </div>
             </div>
 
