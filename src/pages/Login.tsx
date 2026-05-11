@@ -69,61 +69,72 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-[#8fb09f] p-4 overflow-hidden font-sans">
+    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden font-sans bg-[#051410]">
+      {/* Background Image with Opacity */}
+      <img 
+        src={`${import.meta.env.BASE_URL}school-bg.jpg`}
+        alt="School Campus"
+        className="fixed inset-0 w-full h-full object-cover z-0 opacity-40 blur-[1px]"
+        referrerPolicy="no-referrer"
+      />
+      {/* Overlay for Contrast */}
+      <div className="fixed inset-0 z-0 bg-[#051410]/70 lg:bg-[#051410]/60" />
+
       <div className="w-full max-w-md relative z-10">
         <div className="flex flex-col items-center mb-6">
           <motion.div
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', damping: 15, stiffness: 200 }}
-            className="mb-1"
+            className="mb-3 relative group"
           >
+            <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full scale-150 animate-pulse" />
             <img 
               src={`${import.meta.env.BASE_URL}cdm-logo.png`} 
               alt="Colegio de Montalban Logo" 
-              className="h-20 w-20 object-contain"
+              className="h-24 w-24 object-contain relative z-10 transform transition-transform group-hover:rotate-12 duration-500"
               referrerPolicy="no-referrer"
             />
           </motion.div>
-          <h1 className="text-3xl font-bold text-white tracking-tight text-center drop-shadow-sm">Colegio de Montalban</h1>
-          <p className="text-white/90 text-xs font-semibold tracking-wide mt-0.5">Student Enrollment Portal</p>
+          <h1 className="text-3xl font-black text-white tracking-tight text-center drop-shadow-md italic uppercase">CdM Portal</h1>
+          <p className="text-white font-black text-[9px] uppercase tracking-[0.4em] mt-1 opacity-40">Student Enrollment System</p>
         </div>
 
-        <Card className="border-none shadow-2xl bg-[#e3eae6] rounded-2xl overflow-hidden">
-          <CardContent className="p-8">
+        <Card className="border-none shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-[#0a2018]/40 backdrop-blur-3xl rounded-[2.5rem] overflow-hidden border border-white/5">
+          <CardContent className="p-10">
             <form onSubmit={handleLogin} className="space-y-6">
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-600 px-1">Username</label>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] px-1">Registrar ID</label>
                   <div className="relative group">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
                     <input
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Enter your username"
-                      className="w-full py-2.5 pl-9 pr-4 rounded-lg border border-slate-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm text-slate-700 bg-white"
+                      placeholder="Enter username"
+                      className="w-full h-12 pl-12 pr-4 rounded-2xl border border-white/5 outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm text-white bg-white/5 placeholder:text-white/10 font-bold"
                       required
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-600 px-1">Password</label>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] px-1">Security Key</label>
                   <div className="relative group">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full py-2.5 pl-9 pr-10 rounded-lg border border-slate-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm text-slate-700 bg-white"
+                      placeholder="Enter password"
+                      className="w-full h-12 pl-12 pr-12 rounded-2xl border border-white/5 outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm text-white bg-white/5 placeholder:text-white/10 font-bold"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-emerald-400 transition-colors"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -133,31 +144,31 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div className="flex items-center justify-between px-1">
                 <label className="flex items-center gap-2 cursor-pointer group">
-                  <input type="checkbox" className="w-3.5 h-3.5 border-slate-300 rounded text-blue-600 focus:ring-blue-500" />
-                  <span className="text-xs text-slate-500 group-hover:text-slate-700 transition-colors">Remember me</span>
+                  <input type="checkbox" className="w-4 h-4 border-white/5 rounded-lg bg-white/5 text-emerald-500 focus:ring-emerald-500/20" />
+                  <span className="text-[10px] text-emerald-500/30 font-bold uppercase tracking-widest group-hover:text-emerald-500/50 transition-colors">Remember</span>
                 </label>
-                <button type="button" className="text-xs text-blue-600 font-bold hover:underline">
-                  Forgot password?
+                <button type="button" className="text-[10px] text-emerald-400 font-black uppercase tracking-widest hover:text-emerald-300 transition-colors">
+                  Recovery
                 </button>
               </div>
 
               <Button
                 type="submit"
                 className={cn(
-                  "w-full h-11 rounded-lg font-bold bg-[#1e60ff] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20",
+                  "w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-500 hover:to-green-600 text-white shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-[0.98] transition-all",
                   loading && "opacity-80"
                 )}
                 isLoading={loading}
               >
-                Sign In to Portal
+                Enter Portal
               </Button>
 
-              <div className="relative">
+              <div className="relative py-2">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200"></div>
+                  <div className="w-full border-t border-white/5"></div>
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-[#e3eae6] px-2 text-slate-500 font-bold">Or continue with</span>
+                <div className="relative flex justify-center text-[9px] uppercase tracking-[0.3em] font-black">
+                  <span className="bg-transparent px-4 text-white/20">Student Access</span>
                 </div>
               </div>
 
@@ -165,11 +176,11 @@ export default function Login({ onLogin }: LoginProps) {
                 type="button"
                 variant="outline"
                 onClick={handleGoogleLogin}
-                className="w-full h-11 rounded-lg font-bold border-slate-200 hover:bg-white/50 bg-white"
+                className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.15em] text-[10px] border border-white/5 hover:bg-white/5 bg-transparent text-white transition-all active:scale-[0.98]"
                 disabled={loading}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24">
+                <div className="flex items-center justify-center gap-3">
+                  <svg className="h-5 w-5" viewBox="0 0 24 24">
                     <path
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                       fill="#4285F4"
@@ -187,25 +198,25 @@ export default function Login({ onLogin }: LoginProps) {
                       fill="#EA4335"
                     />
                   </svg>
-                  Google Account
+                  <span>Google Account</span>
                 </div>
               </Button>
               
-              <div className="flex flex-col items-center gap-4 pt-4">
+              <div className="flex flex-col items-center gap-6 pt-6">
                 <div className="w-full pt-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="text-center font-sans opacity-60">
-                      <p className="text-[9px] font-bold text-slate-700">Admins</p>
-                      <p className="text-[8px] text-slate-500">Admin1 to Admin5</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center">
+                      <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">Office Access</p>
+                      <p className="text-[9px] font-bold text-white/40 mt-1 uppercase tracking-tighter">Registrar [1-5]</p>
                     </div>
-                    <div className="text-center font-sans border-l border-slate-300 opacity-60">
-                      <p className="text-[9px] font-bold text-slate-700">Students</p>
-                      <p className="text-[8px] text-slate-500">Use Google Login</p>
+                    <div className="text-center border-l border-white/5">
+                      <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">Enrollment</p>
+                      <p className="text-[9px] font-bold text-white/40 mt-1 uppercase tracking-tighter">Verified OAuth</p>
                     </div>
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-400 font-medium">
-                  CDMES v2.0 • Authorized Personnel Only
+                <p className="text-[9px] text-white/10 font-black uppercase tracking-[0.4em]">
+                  CDMES v2.0 • Security Optimized
                 </p>
               </div>
             </form>

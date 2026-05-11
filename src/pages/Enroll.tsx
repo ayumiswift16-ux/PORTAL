@@ -492,7 +492,7 @@ export default function Enroll() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-600 text-xs font-bold uppercase tracking-wider mb-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold uppercase tracking-wider mb-2">
             <Sparkles className="h-3 w-3" />
             Qualification Phase
           </span>
@@ -512,7 +512,7 @@ export default function Enroll() {
             <div key={step.id} className="flex flex-col items-center gap-3">
               <motion.div
                 animate={{
-                  backgroundColor: currentStep >= step.id ? '#2563eb' : '#f1f5f9',
+                  backgroundColor: currentStep >= step.id ? '#059669' : '#f1f5f9',
                   color: currentStep >= step.id ? '#ffffff' : '#94a3b8',
                   scale: currentStep === step.id ? 1.1 : 1
                 }}
@@ -521,7 +521,7 @@ export default function Enroll() {
                 {currentStep > step.id ? <CheckCircle2 className="h-6 w-6" /> : step.id}
               </motion.div>
               <div className="text-center hidden sm:block">
-                <p className={cn("text-xs font-bold uppercase tracking-wider", currentStep >= step.id ? "text-blue-600" : "text-slate-400")}>
+                <p className={cn("text-xs font-bold uppercase tracking-wider", currentStep >= step.id ? "text-emerald-600" : "text-slate-400")}>
                   {step.title}
                 </p>
                 <p className="text-[10px] text-slate-400 font-medium">{step.description}</p>
@@ -556,7 +556,7 @@ export default function Enroll() {
               {currentStep === 1 && (
                 <div className="space-y-8">
                   <div className="flex items-center gap-3 text-slate-900">
-                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
                       <User className="h-5 w-5" />
                     </div>
                     <h3 className="text-xl font-bold">Personal Information</h3>
@@ -597,7 +597,7 @@ export default function Enroll() {
                     <div className="space-y-1.5 text-left">
                       <label className="text-sm font-medium text-slate-700 ml-1">Gender</label>
                       <select 
-                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 disabled:bg-slate-50 disabled:text-slate-500"
                         value={studentInfo.gender}
                         onChange={(e) => setStudentInfo({ ...studentInfo, gender: e.target.value })}
                         disabled={isReadOnly}
@@ -617,7 +617,7 @@ export default function Enroll() {
                     <div className="space-y-1.5 text-left">
                       <label className="text-sm font-medium text-slate-700 ml-1">Year Level</label>
                       <select 
-                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 disabled:bg-slate-50 disabled:text-slate-500"
                         value={studentInfo.yearLevel}
                         onChange={(e) => setStudentInfo({ ...studentInfo, yearLevel: e.target.value as YearLevel })}
                         disabled={isReadOnly}
@@ -691,7 +691,7 @@ export default function Enroll() {
                           <label className="text-sm font-medium text-slate-700">Summary of Grades</label>
                           <div className={cn(
                             "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
-                            studentInfo.documents?.summaryOfGrades ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                            studentInfo.documents?.summaryOfGrades ? "border-emerald-200 bg-emerald-50" : "hover:border-emerald-400 hover:bg-white"
                           )}>
                             {studentInfo.documents?.summaryOfGrades ? (
                               <img src={studentInfo.documents.summaryOfGrades} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
@@ -715,7 +715,7 @@ export default function Enroll() {
                           <label className="text-sm font-medium text-slate-700">Good Moral Certificate</label>
                           <div className={cn(
                             "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
-                            studentInfo.documents?.goodMoral ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                            studentInfo.documents?.goodMoral ? "border-emerald-200 bg-emerald-50" : "hover:border-emerald-400 hover:bg-white"
                           )}>
                             {studentInfo.documents?.goodMoral ? (
                               <img src={studentInfo.documents.goodMoral} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
@@ -739,7 +739,7 @@ export default function Enroll() {
                           <label className="text-sm font-medium text-slate-700">Birth Certificate</label>
                           <div className={cn(
                             "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
-                            studentInfo.documents?.birthCertificate ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                            studentInfo.documents?.birthCertificate ? "border-emerald-200 bg-emerald-50" : "hover:border-emerald-400 hover:bg-white"
                           )}>
                             {studentInfo.documents?.birthCertificate ? (
                               <img src={studentInfo.documents.birthCertificate} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
@@ -763,7 +763,7 @@ export default function Enroll() {
                           <label className="text-sm font-medium text-slate-700">2x2 Student Photo</label>
                           <div className={cn(
                             "relative h-32 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-4 transition-all overflow-hidden",
-                            studentInfo.documents?.twoByTwoPhoto ? "border-emerald-200 bg-emerald-50" : "hover:border-blue-400 hover:bg-white"
+                            studentInfo.documents?.twoByTwoPhoto ? "border-emerald-200 bg-emerald-50" : "hover:border-emerald-400 hover:bg-white"
                           )}>
                             {studentInfo.documents?.twoByTwoPhoto ? (
                               <img src={studentInfo.documents.twoByTwoPhoto} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-40" />
@@ -792,7 +792,7 @@ export default function Enroll() {
               {currentStep === 2 && (
                 <div className="space-y-8">
                   <div className="flex items-center gap-3 text-slate-900 text-center justify-center mb-8">
-                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
                       <Info className="h-5 w-5" />
                     </div>
                     <h3 className="text-xl font-bold">Select Enrollment Type</h3>

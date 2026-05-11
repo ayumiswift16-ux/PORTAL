@@ -12,7 +12,9 @@ import {
   BookOpen,
   Info,
   Timer,
-  Download
+  Download,
+  Edit3,
+  CheckSquare
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -34,8 +36,8 @@ import { db } from '@/src/lib/firebase';
 import { doc, getDoc, collection, getDocs, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 const STATS = [
-  { label: 'Total Students', value: '1,284', icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '+12.5%' },
-  { label: 'Active Enrollees', value: '842', icon: GraduationCap, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: '+8.2%' },
+  { label: 'Total Students', value: '1,284', icon: Users, color: 'text-slate-900', bg: 'bg-emerald-100', trend: '+12.5%' },
+  { label: 'Active Enrollees', value: '842', icon: GraduationCap, color: 'text-slate-900', bg: 'bg-green-100', trend: '+8.2%' },
   { label: 'Approved', value: '756', icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '+14.1%' },
   { label: 'Pending Apps', value: '86', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '-2.4%' },
 ];
@@ -76,8 +78,8 @@ export default function Dashboard({ user }: DashboardProps) {
         const active = allDocs.filter(d => d.status === 'Approved' || d.status === 'Enrolled').length;
 
         setStats([
-          { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', trend: '--' },
-          { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: '--' },
+          { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-slate-900', bg: 'bg-emerald-100', trend: '--' },
+          { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-slate-900', bg: 'bg-green-100', trend: '--' },
           { label: 'Approved', value: approved.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '--' },
           { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
         ]);
@@ -111,6 +113,49 @@ export default function Dashboard({ user }: DashboardProps) {
     return 'Active';
   }, [settings]);
 
+  const [timeLeft, setTimeLeft] = useState<{ days: number, hours: number, minutes: number, seconds: number } | null>(null);
+
+  useEffect(() => {
+    if (enrollmentStatus !== 'Active' || !settings?.enrollmentEndDate) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const now = new Date().getTime();
+      const end = new Date(settings.enrollmentEndDate).getTime();
+      const distance = end - now;
+
+      if (distance < 0) {
+        setTimeLeft(null);
+        clearInterval(timer);
+        return;
+      }
+
+      setTimeLeft({
+        days: Math.floor(distance / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+        minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+        seconds: Math.floor((distance % (1000 * 60)) / 1000)
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [enrollmentStatus, settings]);
+
+  const formatTime = (time?: string) => {
+    if (!time) return '';
+    try {
+      const [hours, minutes] = time.split(':');
+      const h = parseInt(hours);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const formattedHours = h % 12 || 12;
+      return `${formattedHours}:${minutes} ${ampm}`;
+    } catch (e) {
+      return time;
+    }
+  };
+
   const studentStatus = enrollmentRecord?.status || 'Not Enrolled';
 
   return (
@@ -123,7 +168,7 @@ export default function Dashboard({ user }: DashboardProps) {
         animate={{ opacity: 1, scale: 1 }}
         className={cn(
           "flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 rounded-3xl text-white shadow-xl overflow-hidden relative",
-          isAdmin ? "bg-linear-to-br from-[#1e293b] to-[#334155]" : "bg-linear-to-br from-[#064e3b] to-[#065f46]"
+          isAdmin ? "bg-linear-to-br from-[#052e16] to-[#064e3b]" : "bg-linear-to-br from-[#064e3b] to-[#065f46]"
         )}
       >
         <div className="relative z-10">
@@ -134,13 +179,25 @@ export default function Dashboard({ user }: DashboardProps) {
               : "You are logged in to the CdM Student Portal. Stay updated with your academics."}
           </p>
         </div>
-        <div className="bg-white/10 px-6 py-4 rounded-2xl text-center backdrop-blur-md border border-white/10 relative z-10 min-w-[140px]">
+        <div className="bg-white/10 px-6 py-4 rounded-2xl text-center backdrop-blur-md border border-white/10 relative z-10 min-w-[180px]">
           <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">Enrollment Status</p>
-          <p className={cn(
-            "text-2xl font-black uppercase tracking-tighter transition-colors",
-            enrollmentStatus === 'Active' ? "text-emerald-400" : 
-            enrollmentStatus === 'Upcoming' ? "text-amber-400" : "text-red-400"
-          )}>{enrollmentStatus}</p>
+          <div className="flex flex-col items-center">
+            <p className={cn(
+              "text-2xl font-black uppercase tracking-tighter transition-colors",
+              enrollmentStatus === 'Active' ? "text-emerald-400" : 
+              enrollmentStatus === 'Upcoming' ? "text-amber-400" : "text-red-400"
+            )}>
+              {enrollmentStatus}
+            </p>
+            {enrollmentStatus === 'Active' && timeLeft && (
+              <div className="mt-1 flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 rounded-full border border-emerald-500/30">
+                <Timer className="h-3 w-3 text-emerald-400" />
+                <span className="text-[11px] font-black font-mono text-emerald-200">
+                  {timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m {timeLeft.seconds}s
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl" />
       </motion.div>
@@ -155,7 +212,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.1 }}
               >
-                <Card glass className="p-5 flex flex-col justify-between h-full group hover:border-blue-300">
+                <Card glass className="p-5 flex flex-col justify-between h-full group hover:border-emerald-300">
                   <div className="flex items-center justify-between mb-4">
                     <div className={cn("p-2 rounded-lg text-white", stat.color.replace('text-', 'bg-'))}>
                       <stat.icon className="h-5 w-5" />
@@ -182,7 +239,7 @@ export default function Dashboard({ user }: DashboardProps) {
                     <CardTitle>Enrollment Activity</CardTitle>
                     <CardDescription>Daily enrollment applications for the current week</CardDescription>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-blue-600 font-semibold">View Details</Button>
+                  <Button variant="ghost" size="sm" className="text-slate-600 font-semibold hover:text-emerald-600">View Details</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -191,8 +248,8 @@ export default function Dashboard({ user }: DashboardProps) {
                     <AreaChart data={CHART_DATA}>
                       <defs>
                         <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -219,7 +276,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       <Area 
                         type="monotone" 
                         dataKey="count" 
-                        stroke="#2563eb" 
+                        stroke="#10b981" 
                         strokeWidth={3}
                         fillOpacity={1} 
                         fill="url(#colorCount)" 
@@ -232,8 +289,8 @@ export default function Dashboard({ user }: DashboardProps) {
 
             {/* Quick Actions & Notifications */}
             <div className="space-y-8">
-              <Card className="border-none shadow-sm bg-slate-900 text-white overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl -mr-16 -mt-16" />
+              <Card className="border-none shadow-sm bg-[#052e16] text-white overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl -mr-16 -mt-16" />
                 <CardHeader>
                   <CardTitle className="text-white text-left">Quick Actions</CardTitle>
                 </CardHeader>
@@ -248,7 +305,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       className="flex items-center justify-between w-full p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/10"
                     >
                       <div className="flex items-center gap-3">
-                        <action.icon className="h-4 w-4 text-blue-400" />
+                        <action.icon className="h-4 w-4 text-emerald-400" />
                         <span className="text-sm font-medium">{action.label}</span>
                       </div>
                       <ArrowUpRight className="h-4 w-4 opacity-30" />
@@ -290,7 +347,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 <CardTitle>Recent Enrollments</CardTitle>
                 <CardDescription>Overview of the latest student applications</CardDescription>
               </div>
-              <p className="text-xs font-bold text-blue-600 cursor-pointer hover:underline" onClick={() => navigate('/records')}>
+              <p className="text-xs font-bold text-slate-400 cursor-pointer hover:text-emerald-600" onClick={() => navigate('/records')}>
                 View All
               </p>
             </CardHeader>
@@ -310,12 +367,12 @@ export default function Dashboard({ user }: DashboardProps) {
                     <tr key={i} className="hover:bg-slate-50/80 transition-colors group text-left">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+                          <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">
                             {enrollment.studentInfo.firstName ? enrollment.studentInfo.firstName[0] : 'U'}{enrollment.studentInfo.lastName ? enrollment.studentInfo.lastName[0] : 'U'}
                           </div>
                           <div>
                             <p className="text-sm font-bold text-slate-900">{enrollment.studentInfo.firstName} {enrollment.studentInfo.lastName}</p>
-                            <p className="text-xs text-slate-500">{enrollment.studentInfo.studentId}</p>
+                            <p className="text-xs text-slate-500">{enrollment.studentId || enrollment.studentInfo.studentId}</p>
                           </div>
                         </div>
                       </td>
@@ -326,10 +383,13 @@ export default function Dashboard({ user }: DashboardProps) {
                           "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
                           enrollment.status === 'Enrolled' ? "bg-emerald-100 text-emerald-700" :
                           enrollment.status === 'Pending' ? "bg-amber-100 text-amber-700" :
-                          enrollment.status === 'Approved' ? "bg-blue-100 text-blue-700" :
+                          enrollment.status === 'Approved' ? "bg-emerald-50 text-emerald-600" :
+                          enrollment.status === 'Validating' ? (
+                            enrollment.studentInfo.yearLevel === '1st Year' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                          ) :
                           "bg-red-100 text-red-700"
                         )}>
-                          {enrollment.status}
+                          {(enrollment.status === 'Validating' && enrollment.studentInfo.yearLevel === '1st Year') ? 'Assessment' : enrollment.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-xs font-medium text-slate-400">{enrollment.enrolledAt.split('T')[0]}</td>
@@ -343,22 +403,136 @@ export default function Dashboard({ user }: DashboardProps) {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
-            {/* Student Dashboard Items */}
+            {/* Enrollment Status Stepper Card */}
+            <Card className="border-none shadow-sm overflow-hidden bg-white">
+              <div className="p-6 border-b border-slate-100">
+                <h3 className="text-xl font-bold text-[#052e16] text-left">Confirmation</h3>
+              </div>
+              <CardContent className="p-10">
+                <div className="relative">
+                  {/* Stepper Line */}
+                  <div className="absolute top-2 left-[10%] right-[10%] h-[2px] bg-slate-100 z-0" />
+                  
+                  {/* Progress Line */}
+                  <div 
+                    className="absolute top-2 left-[10%] h-[2px] bg-[#052e16] z-0 transition-all duration-1000" 
+                    style={{ 
+                      width: studentStatus === 'Enrolled' ? '80%' : 
+                             studentStatus === 'Approved' ? '40%' : '0%' 
+                    }}
+                  />
+
+                  <div className="relative z-10 flex justify-between items-start">
+                    {/* Step 1: Submitted */}
+                    <div className="flex flex-col items-center w-1/3">
+                      <div className={cn(
+                        "h-4 w-4 rounded-full border-2 mb-4 transition-colors duration-500",
+                        enrollmentRecord ? "bg-[#052e16] border-[#052e16]" : "bg-white border-slate-200"
+                      )} />
+                      <span className={cn(
+                        "text-sm font-bold mb-4",
+                        enrollmentRecord ? "text-[#052e16]" : "text-slate-300"
+                      )}>Submitted</span>
+                      <Edit3 className={cn("h-6 w-6 mb-4", enrollmentRecord ? "text-[#052e16]" : "text-slate-200")} />
+                      {enrollmentRecord && (
+                        <div className="text-center">
+                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.enrolledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.enrolledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step 2: Assessment */}
+                    <div className="flex flex-col items-center w-1/3">
+                      <div className={cn(
+                        "h-4 w-4 rounded-full border-2 mb-4 transition-colors duration-500",
+                        (studentStatus === 'Approved' || studentStatus === 'Enrolled') ? "bg-[#052e16] border-[#052e16]" : 
+                        studentStatus === 'Validating' ? "bg-white border-[#052e16] animate-pulse" : "bg-white border-slate-200"
+                      )} />
+                      <span className={cn(
+                        "text-sm font-bold mb-4",
+                        (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-300"
+                      )}>Assessment</span>
+                      <Clock className={cn("h-6 w-6 mb-4", (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-200")} />
+                      {enrollmentRecord?.examDate ? (
+                        <div className="text-center p-3 rounded-xl bg-amber-50 border border-amber-100 mt-2 shadow-sm">
+                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] mb-1">Entrance Exam Schedule</p>
+                          <p className="text-xs font-bold text-amber-900">{new Date(enrollmentRecord.examDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                          <p className="text-[10px] font-bold text-amber-900/70">
+                            {formatTime(enrollmentRecord.examStartTime)} - {formatTime(enrollmentRecord.examEndTime)} @ {enrollmentRecord.examVenue}
+                          </p>
+                        </div>
+                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled') && enrollmentRecord?.updatedAt ? (
+                        <div className="text-center">
+                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Step 3: Enrolled */}
+                    <div className="flex flex-col items-center w-1/3">
+                      <div className={cn(
+                        "h-4 w-4 rounded-full border-2 mb-4 transition-colors duration-500",
+                        studentStatus === 'Enrolled' ? "bg-[#052e16] border-[#052e16]" : "bg-white border-slate-200"
+                      )} />
+                      <span className={cn(
+                        "text-sm font-bold mb-4",
+                        studentStatus === 'Enrolled' ? "text-[#052e16]" : "text-slate-300"
+                      )}>Enrolled</span>
+                      <CheckSquare className={cn("h-6 w-6 mb-4", studentStatus === 'Enrolled' ? "text-[#052e16]" : "text-slate-200")} />
+                      {studentStatus === 'Enrolled' && enrollmentRecord?.updatedAt && (
+                        <div className="text-center">
+                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-12 flex flex-col sm:flex-row gap-4">
+                  <Button 
+                    className={cn(
+                      "flex-1 py-6 gap-2 text-base font-bold shadow-lg transition-all",
+                      studentStatus === 'Enrolled' ? "bg-emerald-600 hover:bg-emerald-700" : "bg-[#052e16] hover:bg-[#064e3b]"
+                    )}
+                    onClick={() => navigate('/enroll')}
+                    disabled={enrollmentStatus !== 'Active' && studentStatus !== 'Enrolled'}
+                  >
+                    {studentStatus === 'Enrolled' ? (
+                      <>
+                        <Download className="h-5 w-5" />
+                        Print COE / Reg Form
+                      </>
+                    ) : (
+                      enrollmentStatus === 'Upcoming' ? 'Enrollment Not Yet Open' :
+                      enrollmentStatus === 'Ended' ? 'Enrollment Closed' :
+                      'Proceed to Enrollment'
+                    )}
+                  </Button>
+                  <Button variant="outline" className="flex-1 py-6 font-bold" onClick={() => navigate('/steps')}>
+                    Enrollment Guide
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <Card glass className="p-6">
                 <div className="flex items-center gap-4 mb-6">
                   <div className={cn(
                     "h-12 w-12 rounded-2xl flex items-center justify-center",
-                    user?.role === 'student' ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"
+                    studentStatus === 'Enrolled' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                   )}>
                     <GraduationCap className="h-6 w-6" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900">Enrollment Status</h3>
+                  <div className="text-left">
+                    <h3 className="font-bold text-slate-900">Student Info</h3>
                     <p className="text-xs text-slate-500">{settings?.academicYear || 'A.Y. 2026-2027'} - Sem: {settings?.semester || '1'}</p>
                   </div>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-4 text-left">
                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
                     <span className="text-sm font-medium text-slate-600">Current Status:</span>
                     <span className={cn(
@@ -385,32 +559,12 @@ export default function Dashboard({ user }: DashboardProps) {
                       Note: Your student ID and section will be visible once the registrar approves your enrollment.
                     </p>
                   )}
-
-                  <Button 
-                    className={cn(
-                      "w-full py-6 gap-2 text-base font-bold shadow-lg transition-all",
-                      studentStatus === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200" : "bg-green-700 hover:bg-green-800 shadow-green-200"
-                    )}
-                    onClick={() => navigate('/enroll')}
-                    disabled={enrollmentStatus !== 'Active' && studentStatus !== 'Enrolled'}
-                  >
-                    {studentStatus === 'Enrolled' ? (
-                      <>
-                        <Download className="h-5 w-5" />
-                        Print COE / Reg Form
-                      </>
-                    ) : (
-                      enrollmentStatus === 'Upcoming' ? 'Enrollment Not Yet Open' :
-                      enrollmentStatus === 'Ended' ? 'Enrollment Closed' :
-                      'Proceed to Enrollment'
-                    )}
-                  </Button>
                 </div>
               </Card>
 
               <Card glass className="p-6">
                 <div className="flex items-center gap-4 mb-6">
-                  <div className="h-12 w-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <div className="h-12 w-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
                     <Timer className="h-6 w-6" />
                   </div>
                   <div>

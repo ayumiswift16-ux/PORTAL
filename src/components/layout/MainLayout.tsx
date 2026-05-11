@@ -153,7 +153,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
               animate={{ x: 0 }}
               exit={{ x: -256 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 bottom-0 w-64 bg-slate-950 z-50 lg:hidden flex flex-col"
+              className="fixed left-0 top-0 bottom-0 w-64 bg-[#051c14] z-50 lg:hidden flex flex-col"
             >
               <Sidebar 
                 user={user} 
@@ -164,7 +164,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
               />
               <button 
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="absolute top-4 right-[-48px] bg-slate-950 text-white p-2 rounded-r-xl"
+                className="absolute top-4 right-[-48px] bg-[#051c14] text-white p-2 rounded-r-xl"
               >
                 <X className="h-6 w-6" />
               </button>
@@ -208,7 +208,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
             >
               <div className={cn(
                 "h-40 relative shrink-0 overflow-hidden",
-                user?.profilePicture ? "bg-slate-900" : "bg-gradient-to-r from-blue-600 to-indigo-700"
+                user?.profilePicture ? "bg-slate-900" : "bg-gradient-to-r from-emerald-600 to-green-700"
               )}>
                 {user?.profilePicture && (
                   <img src={user.profilePicture} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 blur-2xl scale-110" />
@@ -227,7 +227,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                     <div className="h-40 w-40 rounded-[2.5rem] bg-white p-2 shadow-2xl">
                       <div className={cn(
                         "h-full w-full rounded-[2rem] flex items-center justify-center text-5xl font-black overflow-hidden relative",
-                        user?.profilePicture ? "bg-slate-50" : "bg-blue-50 text-blue-600"
+                        user?.profilePicture ? "bg-slate-50" : "bg-emerald-50 text-emerald-600"
                       )}>
                         {user?.profilePicture ? (
                           <img src={user.profilePicture} alt="Profile" className="w-full h-full object-cover" />
@@ -267,7 +267,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                   </div>
                   <div className="flex-1 pb-4">
                     <h2 className="text-4xl font-black text-slate-900 tracking-tight leading-none mb-2">{user?.name}</h2>
-                    <p className="text-blue-600 font-bold uppercase tracking-[0.2em] text-xs flex items-center justify-center md:justify-start gap-2">
+                    <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-xs flex items-center justify-center md:justify-start gap-2">
                       <Shield className="h-4 w-4" />
                       {user?.role === 'admin' ? 'Registrar' : 'Student'} Portal
                     </p>
@@ -275,9 +275,9 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 relative group transition-all hover:border-blue-200">
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 relative group transition-all hover:border-emerald-200">
                     <div className="flex items-center gap-4">
-                      <div className="h-12 w-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm group-hover:text-blue-600 transition-colors">
+                      <div className="h-12 w-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm group-hover:text-emerald-600 transition-colors">
                         <Mail className="h-6 w-6" />
                       </div>
                       <div className="flex-1">
@@ -286,7 +286,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                           <div className="flex items-center gap-2 mt-1">
                             <input 
                               autoFocus
-                              className="w-full bg-white border border-blue-200 rounded-lg px-3 py-1 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                              className="w-full bg-white border border-emerald-200 rounded-lg px-3 py-1 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                               value={tempEmail}
                               onChange={(e) => setTempEmail(e.target.value)}
                               onKeyDown={(e) => {
@@ -301,7 +301,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                                 toast.error("Email changes must be requested through Registry");
                                 setIsEditingEmail(false);
                               }}
-                              className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                              className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                             >
                               <Save className="h-4 w-4" />
                             </button>
@@ -311,7 +311,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                             <p className="text-sm font-bold text-slate-700 truncate max-w-[180px]">{user?.email}</p>
                             <button 
                               onClick={() => setIsEditingEmail(true)}
-                              className="p-1.5 opacity-0 group-hover/email:opacity-100 hover:bg-blue-100 text-blue-600 rounded-lg transition-all"
+                              className="p-1.5 opacity-0 group-hover/email:opacity-100 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-all"
                             >
                               <Edit2 className="h-3 w-3" />
                             </button>
@@ -320,7 +320,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-blue-200">
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-emerald-200">
                     <div className="flex items-center gap-4">
                       <div className="h-12 w-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm transition-colors">
                         <IdCard className="h-6 w-6" />
@@ -336,7 +336,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-blue-200">
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-emerald-200">
                     <div className="flex items-center gap-4">
                       <div className="h-12 w-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm transition-colors">
                         <Calendar className="h-6 w-6" />
@@ -347,7 +347,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-blue-200">
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 transition-all hover:border-emerald-200">
                     <div className="flex items-center gap-4">
                       <div className="h-12 w-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm transition-colors">
                         <Shield className="h-6 w-6" />

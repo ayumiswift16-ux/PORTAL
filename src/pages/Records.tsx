@@ -46,7 +46,14 @@ export default function Records() {
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<EnrollmentRecord | null>(null);
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<EnrollmentRecord | null>(null);
-  const [validationData, setValidationData] = useState({ studentId: '', section: '' });
+  const [validationData, setValidationData] = useState({ 
+    studentId: '', 
+    section: '',
+    examDate: '',
+    examStartTime: '',
+    examEndTime: '',
+    examVenue: ''
+  });
   const [registrationData, setRegistrationData] = useState<any>(null);
   const [sections, setSections] = useState<{name: string, yearLevel: string}[]>([]);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
@@ -54,6 +61,19 @@ export default function Records() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
   const navigate = useNavigate();
+
+  const formatTime = (time?: string) => {
+    if (!time) return '';
+    try {
+      const [hours, minutes] = time.split(':');
+      const h = parseInt(hours);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const formattedHours = h % 12 || 12;
+      return `${formattedHours}:${minutes} ${ampm}`;
+    } catch (e) {
+      return time;
+    }
+  };
 
   const filteredSectionsForStudent = useMemo(() => {
     if (!selectedRecord) return [];
@@ -133,7 +153,11 @@ export default function Records() {
     setSelectedRecord(record);
     setValidationData({ 
       studentId: record.studentId || record.studentInfo.studentId || '', 
-      section: record.section || record.studentInfo.section || '' 
+      section: record.section || record.studentInfo.section || '',
+      examDate: record.examDate || '',
+      examStartTime: record.examStartTime || '',
+      examEndTime: record.examEndTime || '',
+      examVenue: record.examVenue || ''
     });
     
     // Initialize registration form if not exists
@@ -212,15 +236,21 @@ export default function Records() {
     }
   };
 
-  const handleValidateSubmit = async () => {
+  const handleValidateSubmit = async (newStatus?: 'Enrolled' | 'Validating') => {
     if (!selectedRecord) return;
+    
+    const targetStatus = newStatus || 'Enrolled';
     
     try {
       const docRef = doc(db, 'enrollments', selectedRecord.id);
-      const updates = {
-        status: 'Enrolled' as const,
+      const updates: any = {
+        status: targetStatus,
         studentId: validationData.studentId,
         section: validationData.section,
+        examDate: validationData.examDate,
+        examStartTime: validationData.examStartTime,
+        examEndTime: validationData.examEndTime,
+        examVenue: validationData.examVenue,
         studentInfo: {
           ...selectedRecord.studentInfo,
           studentId: validationData.studentId,
@@ -232,36 +262,25 @@ export default function Records() {
 
       // Send notification to student
       if (selectedRecord.userId) {
-        const oldId = selectedRecord.studentId || selectedRecord.studentInfo.studentId;
-        const oldSection = selectedRecord.section || selectedRecord.studentInfo.section;
-        const idChanged = validationData.studentId !== oldId;
-        const sectionChanged = validationData.section !== oldSection;
-
         let message = '';
-        if (selectedRecord.status === 'Enrolled') {
-          if (idChanged && sectionChanged) {
-            message = `Your student number has been updated to ${validationData.studentId} and your section to ${validationData.section}.`;
-          } else if (idChanged) {
-            message = `Your student number has been updated to ${validationData.studentId}.`;
-          } else if (sectionChanged) {
-            message = `Your assigned section has been updated to ${validationData.section}.`;
-          } else {
-            message = 'Your student information has been updated by the registrar.';
-          }
-        } else {
+        let title = '';
+
+        if (targetStatus === 'Enrolled') {
+          title = selectedRecord.status === 'Enrolled' ? 'Record Updated' : 'Enrollment Approved';
           message = `Your enrollment for ${selectedRecord.course} has been approved! Your student number is ${validationData.studentId} and section is ${validationData.section}.`;
+        } else if (validationData.examDate) {
+          title = 'Entrance Exam Scheduled';
+          message = `Your entrance exam has been scheduled for ${validationData.examDate} at ${formatTime(validationData.examStartTime)} - ${formatTime(validationData.examEndTime)} (${validationData.examVenue}). Please be on time.`;
+        } else {
+          title = 'Information Updated';
+          message = 'Your student information has been updated by the registrar.';
         }
 
-        await sendNotification(
-          selectedRecord.userId,
-          selectedRecord.status === 'Enrolled' ? 'Record Updated' : 'Enrollment Approved',
-          message,
-          'success'
-        );
+        await sendNotification(selectedRecord.userId, title, message, 'info');
       }
 
       setIsValidationModalOpen(false);
-      toast.success(selectedRecord.status === 'Enrolled' ? 'Information updated successfully!' : 'Student verified and enrolled!');
+      toast.success(targetStatus === 'Enrolled' ? 'Student enrolled successfully!' : 'Information updated & exam scheduled!');
     } catch (error) {
       console.error("Validation error:", error);
       toast.error("Failed to update student information.");
@@ -412,9 +431,12 @@ export default function Records() {
                         "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
                         enrollment.status === 'Enrolled' ? "bg-emerald-100 text-emerald-700" :
                         enrollment.status === 'Pending' ? "bg-amber-100 text-amber-700" :
+                        enrollment.status === 'Validating' ? (
+                          enrollment.studentInfo.yearLevel === '1st Year' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                        ) :
                         "bg-blue-100 text-blue-700"
                       )}>
-                        {enrollment.status}
+                        {(enrollment.status === 'Validating' && enrollment.studentInfo.yearLevel === '1st Year') ? 'Assessment' : enrollment.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs font-medium text-slate-400">
@@ -781,7 +803,7 @@ export default function Records() {
                 </button>
               </div>
               
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-6">
                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <p className="text-xs font-bold text-blue-700 uppercase tracking-widest mb-1">Student</p>
                   <p className="text-sm font-bold text-blue-900">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
@@ -820,47 +842,104 @@ export default function Records() {
                 )}
 
                 <div className="space-y-4 pt-2">
-                  <Input 
-                    label="Assign Student ID"
-                    placeholder="e.g. 2026-XXXXX"
-                    value={validationData.studentId}
-                    onChange={(e) => setValidationData({ ...validationData, studentId: e.target.value })}
-                  />
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-bold text-slate-700 ml-1">Assign Section</label>
-                    <select 
-                      className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-                      value={validationData.section}
-                      onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
-                    >
-                      <option value="">Select Section</option>
-                      {filteredSectionsForStudent.map((section) => (
-                        <option key={section.name} value={section.name}>
-                          {section.name}
-                        </option>
-                      ))}
-                      {filteredSectionsForStudent.length === 0 && (
-                        <option value="" disabled>No available sections for this level/course</option>
-                      )}
-                    </select>
-                  </div>
+                  {selectedRecord?.yearLevel !== '1st Year' ? (
+                    <>
+                      <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-2">
+                        <School className="h-4 w-4 text-blue-600" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">Enrollment Details</h4>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Input
+                            label="Student ID"
+                            value={validationData.studentId}
+                            onChange={(e) => setValidationData({ ...validationData, studentId: e.target.value })}
+                            placeholder="2024-XXXXX"
+                            className="h-10 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1.5 text-left">
+                          <label className="text-xs font-bold text-slate-700 ml-1">Assign Section</label>
+                          <select 
+                            className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                            value={validationData.section}
+                            onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
+                          >
+                            <option value="">Select Section</option>
+                            {filteredSectionsForStudent.map(section => (
+                              <option key={section.name} value={section.name}>{section.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-2">
+                        <Calendar className="h-4 w-4 text-amber-600" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">Entrance Exam Schedule</h4>
+                      </div>
+                      <Input
+                        label="Exam Date"
+                        type="date"
+                        value={validationData.examDate}
+                        onChange={(e) => setValidationData({ ...validationData, examDate: e.target.value })}
+                        className="h-10 text-sm"
+                      />
+                      <div className="grid grid-cols-2 gap-4">
+                        <Input
+                          label="Start Time"
+                          type="time"
+                          value={validationData.examStartTime}
+                          onChange={(e) => setValidationData({ ...validationData, examStartTime: e.target.value })}
+                          className="h-10 text-sm"
+                        />
+                        <Input
+                          label="End Time"
+                          type="time"
+                          value={validationData.examEndTime}
+                          onChange={(e) => setValidationData({ ...validationData, examEndTime: e.target.value })}
+                          className="h-10 text-sm"
+                        />
+                      </div>
+                      <Input
+                        label="Exam Venue"
+                        value={validationData.examVenue}
+                        onChange={(e) => setValidationData({ ...validationData, examVenue: e.target.value })}
+                        placeholder="e.g., Computer Lab 1, 3rd Floor"
+                        className="h-10 text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setIsValidationModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button 
-                  className={cn(
-                    "flex-1",
-                    selectedRecord?.status === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700" : "bg-[#064e3b] hover:bg-[#053d2e]"
-                  )}
-                  onClick={() => setIsRegistrationModalOpen(true)}
-                  disabled={!validationData.studentId || !validationData.section}
+              <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 rounded-xl h-12 text-xs font-bold uppercase tracking-widest"
+                    onClick={() => handleValidateSubmit('Validating')}
+                  >
+                    Save Changes
+                  </Button>
+                  <Button 
+                    className={cn(
+                      "flex-1 rounded-xl h-12 text-xs font-bold uppercase tracking-widest",
+                      selectedRecord?.status === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700" : "bg-emerald-600 hover:bg-emerald-700"
+                    )}
+                    onClick={() => setIsRegistrationModalOpen(true)}
+                    disabled={!validationData.studentId || !validationData.section}
+                  >
+                    {selectedRecord?.status === 'Enrolled' ? 'Update Form' : 'Fill Registration'}
+                  </Button>
+                </div>
+                <button 
+                  onClick={() => setIsValidationModalOpen(false)}
+                  className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
                 >
-                  {selectedRecord?.status === 'Enrolled' ? 'Update Form' : 'Fill Registration Form'}
-                </Button>
+                  Close Modal
+                </button>
               </div>
             </motion.div>
           </div>

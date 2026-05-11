@@ -116,7 +116,7 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
           <input
             type="text"
             placeholder="Search students, courses..."
-            className="w-full h-10 pl-11 pr-4 rounded-full border border-slate-200 bg-slate-900/5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            className="w-full h-10 pl-11 pr-4 rounded-full border border-slate-200 bg-slate-900/5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
           />
         </div>
       </div>
@@ -138,7 +138,7 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
             onClick={() => setIsNotifOpen(!isNotifOpen)}
             className={cn(
               "relative p-2 hover:bg-slate-100 rounded-xl transition-colors",
-              isNotifOpen ? "bg-slate-100 text-blue-600" : "text-slate-500"
+              isNotifOpen ? "bg-slate-100 text-emerald-600" : "text-slate-500"
             )}
           >
             <Bell className="h-5 w-5" />
@@ -160,12 +160,12 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
                 <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                   <h3 className="font-bold text-slate-900 flex items-center gap-2">
                     Notifications
-                    {unreadCount > 0 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded-full uppercase tracking-widest">{unreadCount} New</span>}
+                    {unreadCount > 0 && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] rounded-full uppercase tracking-widest">{unreadCount} New</span>}
                   </h3>
                   {unreadCount > 0 && (
                     <button 
                       onClick={markAllAsRead}
-                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 uppercase tracking-widest"
                     >
                       Mark all as read
                     </button>
@@ -180,10 +180,10 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
                         onClick={() => markAsRead(notif.id)}
                         className={cn(
                           "p-4 hover:bg-slate-50 transition-all cursor-pointer flex gap-4 relative group",
-                          !notif.read && "bg-blue-50/30"
+                          !notif.read && "bg-emerald-50/30"
                         )}
                       >
-                        {!notif.read && <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600" />}
+                        {!notif.read && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-600" />}
                         <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center shrink-0", getBg(notif.type))}>
                           {getIcon(notif.type)}
                         </div>
@@ -243,7 +243,7 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
             )}
           >
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold text-slate-900 leading-none group-hover:text-blue-600 transition-colors">
+              <p className="text-sm font-bold text-slate-900 leading-none group-hover:text-slate-700 transition-colors">
                 {user?.name || 'Guest'}
               </p>
               <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
@@ -252,7 +252,7 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
             </div>
             <div className={cn(
               "h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold shadow-md overflow-hidden relative group-hover:scale-105 transition-transform duration-300",
-              user?.profilePicture ? "bg-slate-100" : "bg-blue-600 shadow-blue-600/20"
+              user?.profilePicture ? "bg-slate-100" : "bg-emerald-600 shadow-emerald-600/20"
             )}>
               {user?.profilePicture ? (
                 <img src={user.profilePicture} alt="Avatar" className="w-full h-full object-cover" />
@@ -280,9 +280,9 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
                       setIsProfileOpen(false);
                       onShowProfile?.();
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all group"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition-all group"
                   >
-                    <User className="h-4 w-4 text-slate-400 group-hover:text-blue-600" />
+                    <User className="h-4 w-4 text-slate-400 group-hover:text-emerald-600" />
                     My Profile
                   </button>
                   <button 
@@ -290,9 +290,9 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
                       setIsProfileOpen(false);
                       navigate('/settings');
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all group"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition-all group"
                   >
-                    <Settings className="h-4 w-4 text-slate-400 group-hover:text-blue-600" />
+                    <Settings className="h-4 w-4 text-slate-400 group-hover:text-emerald-600" />
                     Account Settings
                   </button>
                 </div>

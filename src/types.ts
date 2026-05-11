@@ -36,8 +36,13 @@ export interface EnrollmentRecord {
   yearLevel: YearLevel;
   status: 'Pending' | 'Approved' | 'Rejected' | 'Enrolled' | 'Validating';
   enrolledAt: string;
+  updatedAt?: string;
   studentId?: string;
   section?: string;
+  examDate?: string;
+  examStartTime?: string;
+  examEndTime?: string;
+  examVenue?: string;
   registrationForm?: RegistrationForm;
 }
 

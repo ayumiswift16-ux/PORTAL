@@ -31,6 +31,10 @@
         "yearLevel": { "type": "string" },
         "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Enrolled", "Validating"] },
         "enrolledAt": { "type": "string", "format": "date-time" },
+        "examDate": { "type": "string", "description": "Scheduled date for entrance exam" },
+        "examStartTime": { "type": "string", "description": "Scheduled start time for entrance exam" },
+        "examEndTime": { "type": "string", "description": "Scheduled end time for entrance exam" },
+        "examVenue": { "type": "string", "description": "Scheduled venue for entrance exam" },
         "userId": { "type": "string", "description": "The UID of the student if using Auth, or username" }
       },
       "required": ["studentInfo", "type", "course", "status"]

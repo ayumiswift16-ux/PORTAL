@@ -14,24 +14,24 @@ import { Button } from '@/src/components/ui/Button';
 const STEPS_INFO = [
   {
     title: "Document Submission",
-    description: "Submit digital copies of Form 138, Birth Certificate, and Moral Character certificate.",
+    description: "Submit digital copies of Summary of Grades, Good Moral Certificate, Birth Certificate, and 2x2 Student Photo.",
     icon: ClipboardCheck,
-    color: "bg-blue-600",
-    shadow: "shadow-blue-500/20"
+    color: "bg-emerald-600",
+    shadow: "shadow-emerald-500/20"
   },
   {
     title: "Admission Exam",
     description: "Scheduled cognitive and behavioral assessment for qualification.",
     icon: FileSearch,
-    color: "bg-indigo-600",
-    shadow: "shadow-indigo-500/20"
+    color: "bg-emerald-600",
+    shadow: "shadow-emerald-500/20"
   },
   {
     title: "Interview Phase",
     description: "Direct mapping of career goals with the academic deans of each department.",
     icon: Fingerprint,
-    color: "bg-violet-600",
-    shadow: "shadow-violet-500/20"
+    color: "bg-emerald-600",
+    shadow: "shadow-emerald-500/20"
   },
   {
     title: "Course Qualification",
@@ -44,15 +44,15 @@ const STEPS_INFO = [
     title: "Tuition Settlement",
     description: "Payment of miscellaneous fees and initial registration costs.",
     icon: CreditCard,
-    color: "bg-amber-600",
-    shadow: "shadow-amber-500/20"
+    color: "bg-emerald-600",
+    shadow: "shadow-emerald-500/20"
   },
   {
     title: "Final Registration",
     description: "Official issuance of the Certificate of Enrollment (COE) and ID.",
     icon: CheckCircle,
-    color: "bg-teal-600",
-    shadow: "shadow-teal-500/20"
+    color: "bg-emerald-600",
+    shadow: "shadow-emerald-500/20"
   }
 ];
 
@@ -95,7 +95,7 @@ export default function Steps() {
                 </div>
 
                 <div className="mt-8 pt-8 border-t border-slate-50 w-full">
-                  <button className="flex items-center gap-2 text-blue-600 font-bold text-xs uppercase tracking-wider hover:gap-3 transition-all">
+                  <button className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider hover:gap-3 transition-all">
                     Learn Requirements
                     <ArrowRight className="h-4 w-4" />
                   </button>
@@ -106,20 +106,7 @@ export default function Steps() {
         ))}
       </div>
 
-      <Card className="bg-blue-600 p-12 text-white border-none shadow-2xl shadow-blue-600/30 overflow-hidden relative">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl" />
-        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-4 max-w-xl">
-            <h3 className="text-3xl font-black">Ready to apply for Admission?</h3>
-            <p className="text-blue-100 text-lg opacity-80 leading-relaxed">
-              Join thousands of students building their future at CdM. Start your application today and be an officially enrolled Montalbeño.
-            </p>
-          </div>
-          <Button variant="outline" className="bg-white text-blue-600 border-none hover:bg-slate-50 px-10 py-8 text-xl font-black rounded-3xl">
-            Begin Application Now
-          </Button>
-        </div>
-      </Card>
+
     </div>
   );
 }

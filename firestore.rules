@@ -45,7 +45,11 @@ service cloud.firestore {
              data.studentInfo.firstName is string && data.studentInfo.firstName.size() <= 100 &&
              data.studentInfo.lastName is string && data.studentInfo.lastName.size() <= 100 &&
              data.type in ['Regular', 'Irregular', 'Returnee'] &&
-             data.status in ['Pending', 'Approved', 'Rejected', 'Enrolled', 'Validating'];
+             data.status in ['Pending', 'Approved', 'Rejected', 'Enrolled', 'Validating'] &&
+             (!('examDate' in data) || data.examDate is string) &&
+             (!('examStartTime' in data) || data.examStartTime is string) &&
+             (!('examEndTime' in data) || data.examEndTime is string) &&
+             (!('examVenue' in data) || data.examVenue is string);
     }
 
     // 1. Enrollments
