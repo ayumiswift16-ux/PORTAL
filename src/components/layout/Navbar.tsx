@@ -1,7 +1,7 @@
 import { Bell, Search, User, Menu, X, Check, Info, AlertTriangle, AlertCircle, Clock, Settings, LogOut, Camera, Mail, Phone, MapPin, Shield, Calendar, IdCard, Flag, Send } from 'lucide-react';
 import { User as UserType, Notification } from '@/src/types';
 import { useState, useEffect, useRef } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/src/lib/firebase';
 import { cn } from '@/src/utils/cn';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,10 +30,11 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
   useEffect(() => {
     if (!user) return;
 
-    // Use a simple query first to avoid permission/index issues
+    // Use a simple query with a strict limit to save quota
     const q = query(
       collection(db, 'notifications'),
-      where('userId', '==', user.username)
+      where('userId', '==', user.username),
+      limit(20)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

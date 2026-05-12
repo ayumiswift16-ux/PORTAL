@@ -28,6 +28,8 @@ import { useNavigate } from 'react-router-dom';
 import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
 import { doc, getDoc, setDoc, query, collection, where, getDocs, limit } from 'firebase/firestore';
 
+import { compressImage } from '@/src/lib/imageUtils';
+
 const STEPS = [
   { id: 1, title: 'Student info', description: 'Personal details' },
   { id: 2, title: 'Enrollment', description: 'Select type' },
@@ -66,6 +68,7 @@ export default function Enroll() {
   const [studentInfo, setStudentInfo] = useState<StudentInfo>(INITIAL_STUDENT_INFO);
   const [enrollmentType, setEnrollmentType] = useState<EnrollmentType>('Regular');
   const [selectedCourse, setSelectedCourse] = useState<Course>('BSIT');
+  const [secondChoice, setSecondChoice] = useState<Course | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [enrollmentStatus, setEnrollmentStatus] = useState<'Not Started' | 'Validating' | 'Enrolled'>('Not Started');
@@ -179,23 +182,39 @@ export default function Enroll() {
     );
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'summaryOfGrades' | 'goodMoral' | 'twoByTwoPhoto' | 'birthCertificate') => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, field: 'summaryOfGrades' | 'goodMoral' | 'twoByTwoPhoto' | 'birthCertificate') => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 500) { // 500KB limit for base64 storage in Firestore (roughly)
-        toast.error("File is too large. Please keep it under 500KB.");
+      // Basic check to prevent massive files from crashing the browser
+      if (file.size > 1024 * 1024 * 10) { // 10MB limit for raw upload
+        toast.error("File is too large. Please keep it under 10MB.");
         return;
       }
+
+      const toastId = toast.loading(`Optimizing ${field.replace(/([A-Z])/g, ' $1').trim()}...`);
+      
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setStudentInfo(prev => ({
-          ...prev,
-          documents: {
-            ...prev.documents,
-            [field]: reader.result as string
-          }
-        }));
-        toast.success(`${field.replace(/([A-Z])/g, ' $1').trim()} updated!`);
+      reader.onloadend = async () => {
+        try {
+          const originalBase64 = reader.result as string;
+          // Compress image to maintain Firestore limits (Targeting ~100-150KB per doc)
+          const compressed = await compressImage(originalBase64, 600, 600, 0.4);
+          
+          setStudentInfo(prev => ({
+            ...prev,
+            documents: {
+              ...prev.documents,
+              [field]: compressed
+            }
+          }));
+          
+          toast.dismiss(toastId);
+          toast.success(`${field.replace(/([A-Z])/g, ' $1').trim()} uploaded and optimized!`);
+        } catch (error) {
+          toast.dismiss(toastId);
+          console.error("Compression error:", error);
+          toast.error("Failed to process image. Please try another one.");
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -213,7 +232,12 @@ export default function Enroll() {
       return hasBasicInfo && hasAddress && hasDocuments;
     }
     if (step === 2) return !!enrollmentType;
-    if (step === 3) return !!selectedCourse;
+    if (step === 3) {
+      if (studentInfo.yearLevel === '1st Year') {
+        return !!selectedCourse && !!secondChoice && (selectedCourse as any) !== '' && secondChoice !== ('' as any);
+      }
+      return !!selectedCourse && (selectedCourse as any) !== '';
+    }
     return true;
   };
 
@@ -243,6 +267,7 @@ export default function Enroll() {
       },
       type: enrollmentType,
       course: selectedCourse,
+      secondChoice: secondChoice || "",
       yearLevel: studentInfo.yearLevel,
       status: 'Validating',
       updatedAt: now
@@ -980,18 +1005,38 @@ export default function Enroll() {
                         return (
                           <div key={inst} className="flex flex-col md:flex-row gap-6">
                             <div className="md:w-32 shrink-0">
-                              <h4 className="text-4xl font-black text-slate-200 tracking-tighter leading-none mt-1">{inst}</h4>
+                              <h4 className="text-sm font-black text-black uppercase tracking-widest leading-none mt-2">{inst}</h4>
                             </div>
                             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                               {coursesInInstitute.map((course) => (
                                 <button
                                   key={course.id}
                                   disabled={isReadOnly}
-                                  onClick={() => setSelectedCourse(course.id)}
+                                  onClick={() => {
+                                    if (studentInfo.yearLevel === '1st Year') {
+                                      if (selectedCourse === course.id) {
+                                        // Unselect first choice
+                                        setSelectedCourse('' as any);
+                                      } else if (secondChoice === course.id) {
+                                        // Unselect second choice
+                                        setSecondChoice(undefined);
+                                      } else if (!selectedCourse) {
+                                        setSelectedCourse(course.id);
+                                      } else if (!secondChoice && selectedCourse !== course.id) {
+                                        setSecondChoice(course.id);
+                                      } else {
+                                        // Rotate selection: new becomes second, old second becomes first?
+                                        // Better: just replace the one that was clicked if already selected
+                                        toast.error("You have already selected two programs. Deselect one first.");
+                                      }
+                                    } else {
+                                      setSelectedCourse(course.id);
+                                    }
+                                  }}
                                   className={cn(
                                     "p-4 rounded-xl border-2 text-left transition-all relative overflow-hidden group",
                                     isReadOnly && "cursor-not-allowed opacity-80",
-                                    selectedCourse === course.id 
+                                    (selectedCourse === course.id || secondChoice === course.id)
                                       ? "border-blue-600 bg-blue-50/30 ring-4 ring-blue-500/10 shadow-lg shadow-blue-500/5" 
                                       : "border-slate-100 bg-white" + (isReadOnly ? "" : " hover:border-slate-200 hover:shadow-md")
                                   )}
@@ -999,11 +1044,13 @@ export default function Enroll() {
                                   <div className="flex items-center justify-between mb-2">
                                     <span className={cn(
                                       "text-[10px] font-black px-2 py-0.5 rounded tracking-widest transition-colors", 
-                                      selectedCourse === course.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                                      (selectedCourse === course.id || secondChoice === course.id) ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
                                     )}>
                                       {course.id}
+                                      {selectedCourse === course.id && " (1st)"}
+                                      {secondChoice === course.id && " (2nd)"}
                                     </span>
-                                    {selectedCourse === course.id && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+                                    {(selectedCourse === course.id || secondChoice === course.id) && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
                                   </div>
                                   <p className="text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{course.title}</p>
                                   <p className="text-[10px] text-slate-400 font-medium mt-1">{course.slots} slots remaining</p>
@@ -1045,9 +1092,15 @@ export default function Enroll() {
                         <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest text-left">Enrollment Details</p>
                         <div className="p-4 bg-white rounded-2xl shadow-sm space-y-3">
                           <div className="flex justify-between items-center text-sm">
-                            <span className="text-slate-500">Course</span>
+                            <span className="text-slate-500">{studentInfo.yearLevel === '1st Year' ? '1st Choice' : 'Course'}</span>
                             <span className="font-bold text-blue-600">{selectedCourse}</span>
                           </div>
+                          {studentInfo.yearLevel === '1st Year' && secondChoice && (
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-slate-500">2nd Choice</span>
+                              <span className="font-bold text-emerald-600">{secondChoice}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-slate-500">Academic Type</span>
                             <span className="font-bold text-slate-900">{enrollmentType}</span>

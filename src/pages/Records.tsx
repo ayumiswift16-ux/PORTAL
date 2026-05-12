@@ -33,7 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord } from '@/src/types';
 import toast from 'react-hot-toast';
 import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where, limit, getDocs } from 'firebase/firestore';
 import { COURSES } from '@/src/constants';
 import { sendNotification } from '@/src/lib/notifications';
 
@@ -77,61 +77,60 @@ export default function Records() {
 
   const filteredSectionsForStudent = useMemo(() => {
     if (!selectedRecord) return [];
-    // Filter sections by year level and check if the section name includes the course ID
-    return sections.filter(section => 
-      section.yearLevel === selectedRecord.yearLevel && 
-      section.name.toLowerCase().includes(selectedRecord.course.toLowerCase())
-    );
+    // Filter sections by year level and check if the section name includes either the primary course or the second choice ID
+    return sections.filter(section => {
+      const matchesYear = section.yearLevel === selectedRecord.yearLevel;
+      const matchesPrimary = section.name.toLowerCase().includes(selectedRecord.course.toLowerCase());
+      const matchesSecond = selectedRecord.secondChoice ? section.name.toLowerCase().includes(selectedRecord.secondChoice.toLowerCase()) : false;
+      return matchesYear && (matchesPrimary || matchesSecond);
+    });
   }, [sections, selectedRecord]);
 
+  const sectionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    enrollments.forEach(enroll => {
+      const sec = enroll.section || enroll.studentInfo.section;
+      if (sec && enroll.status === 'Enrolled') {
+        counts[sec] = (counts[sec] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [enrollments]);
+
   useEffect(() => {
-    const unsubEnrollments = onSnapshot(
-      query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc')),
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          id: doc.id
-        })) as EnrollmentRecord[];
-        setEnrollments(data);
-      },
-      (error) => {
-        console.error("Error fetching enrollments:", error);
-        toast.error("Failed to sync records.");
-      }
-    );
+    // Real-time Enrollments
+    const qEnroll = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(100));
+    const unsubscribeEnroll = onSnapshot(qEnroll, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as EnrollmentRecord[];
+      setEnrollments(data);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'enrollments'));
 
-    const unsubUsers = onSnapshot(
-      query(collection(db, 'users'), where('role', '==', 'student')),
-      (snapshot) => {
-        const profileMap: Record<string, string> = {};
-        snapshot.docs.forEach(doc => {
-          const userData = doc.data() as { profilePicture?: string };
-          if (userData.profilePicture) {
-            profileMap[doc.id] = userData.profilePicture;
-          }
-        });
-        setStudentProfiles(profileMap);
-      },
-      (error) => {
-        console.error("Error fetching user profiles:", error);
-      }
-    );
+    // Real-time Users (for profile pictures)
+    const qUsers = query(collection(db, 'users'), where('role', '==', 'student'));
+    const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
+      const profileMap: Record<string, string> = {};
+      snapshot.docs.forEach(doc => {
+        const userData = doc.data() as { profilePicture?: string };
+        if (userData.profilePicture) {
+          profileMap[doc.id] = userData.profilePicture;
+        }
+      });
+      setStudentProfiles(profileMap);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
 
-    const unsubSections = onSnapshot(
-      collection(db, 'sections'),
-      (snapshot) => {
-        const sectionData = snapshot.docs.map(doc => doc.data() as {name: string, yearLevel: string});
-        setSections(sectionData);
-      },
-      (error) => {
-        console.error("Error fetching sections:", error);
-      }
-    );
-    
+    // Real-time Sections
+    const unsubscribeSections = onSnapshot(collection(db, 'sections'), (snapshot) => {
+      const sectionData = snapshot.docs.map(doc => doc.data() as {name: string, yearLevel: string});
+      setSections(sectionData);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'sections'));
+
     return () => {
-      unsubEnrollments();
-      unsubUsers();
-      unsubSections();
+      unsubscribeEnroll();
+      unsubscribeUsers();
+      unsubscribeSections();
     };
   }, []);
 
@@ -188,16 +187,27 @@ export default function Records() {
     
     try {
       const docRef = doc(db, 'enrollments', selectedRecord.id);
-      const updates = {
+      const now = new Date().toISOString();
+      
+      // Determine if course needs to change based on section
+      let finalCourse = selectedRecord.course;
+      if (selectedRecord.yearLevel === '1st Year' && selectedRecord.secondChoice && validationData.section) {
+        const isSecondChoiceSection = validationData.section.toLowerCase().includes(selectedRecord.secondChoice.toLowerCase());
+        const isFirstChoiceSection = validationData.section.toLowerCase().includes(selectedRecord.course.toLowerCase());
+        if (isSecondChoiceSection && !isFirstChoiceSection) {
+          finalCourse = selectedRecord.secondChoice;
+        }
+      }
+
+      const updates: any = {
         status: 'Enrolled' as const,
         studentId: validationData.studentId,
         section: validationData.section,
-        studentInfo: {
-          ...selectedRecord.studentInfo,
-          studentId: validationData.studentId,
-          section: validationData.section
-        },
-        registrationForm: registrationData
+        course: finalCourse,
+        enrolledAt: now, 
+        'studentInfo.studentId': validationData.studentId,
+        'studentInfo.section': validationData.section,
+        registrationForm: { ...registrationData, program: finalCourse }
       };
       
       await updateDoc(docRef, updates);
@@ -240,23 +250,37 @@ export default function Records() {
     if (!selectedRecord) return;
     
     const targetStatus = newStatus || 'Enrolled';
+    const now = new Date().toISOString();
     
     try {
       const docRef = doc(db, 'enrollments', selectedRecord.id);
+      
+      // Determine if course needs to change based on section
+      let finalCourse = selectedRecord.course;
+      if (selectedRecord.yearLevel === '1st Year' && selectedRecord.secondChoice && validationData.section) {
+        const isSecondChoiceSection = validationData.section.toLowerCase().includes(selectedRecord.secondChoice.toLowerCase());
+        const isFirstChoiceSection = validationData.section.toLowerCase().includes(selectedRecord.course.toLowerCase());
+        if (isSecondChoiceSection && !isFirstChoiceSection) {
+          finalCourse = selectedRecord.secondChoice;
+        }
+      }
+
       const updates: any = {
         status: targetStatus,
+        course: finalCourse,
         studentId: validationData.studentId,
         section: validationData.section,
         examDate: validationData.examDate,
         examStartTime: validationData.examStartTime,
         examEndTime: validationData.examEndTime,
         examVenue: validationData.examVenue,
-        studentInfo: {
-          ...selectedRecord.studentInfo,
-          studentId: validationData.studentId,
-          section: validationData.section
-        }
+        'studentInfo.studentId': validationData.studentId,
+        'studentInfo.section': validationData.section
       };
+
+      if (targetStatus === 'Enrolled') {
+        updates.enrolledAt = now;
+      }
       
       await updateDoc(docRef, updates);
 
@@ -322,6 +346,24 @@ export default function Records() {
             Add New Record
           </Button>
         </div>
+      </div>
+      
+      {/* Section Counts Summary */}
+      <div className="flex flex-wrap gap-4 overflow-x-auto pb-2 custom-scrollbar">
+        {Object.entries(sectionCounts).length > 0 ? (
+          Object.entries(sectionCounts).map(([section, count]) => (
+            <div key={section} className="flex flex-col bg-white border border-slate-100 rounded-2xl p-4 min-w-[140px] shadow-sm hover:border-blue-200 transition-all">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Section</span>
+              <span className="text-sm font-black text-slate-900 mb-1">{section}</span>
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <p className="text-[10px] font-bold text-slate-500 uppercase">{count} Students Enrolled</p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">No enrolled students in any section yet</p>
+        )}
       </div>
 
       <Card glass className="border-none shadow-sm overflow-hidden">
@@ -399,9 +441,14 @@ export default function Records() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <p className="text-sm font-bold text-slate-700">{enrollment.course}</p>
-                        <div className="flex items-center gap-2">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">{enrollment.yearLevel}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-black text-slate-900 leading-tight">{enrollment.course}</p>
+                          {enrollment.status !== 'Enrolled' && enrollment.secondChoice && (
+                            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded leading-none">/ {enrollment.secondChoice}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{enrollment.yearLevel}</p>
                           {enrollment.studentInfo.documents && (enrollment.studentInfo.documents.summaryOfGrades || enrollment.studentInfo.documents.goodMoral || enrollment.studentInfo.documents.twoByTwoPhoto || enrollment.studentInfo.documents.birthCertificate) && (
                             <button 
                               onClick={(e) => {
@@ -412,7 +459,7 @@ export default function Records() {
                                   section: enrollment.section || ''
                                 });
                               }}
-                              className="flex items-center gap-0.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-200 transition-colors cursor-pointer active:scale-95" 
+                              className="flex items-center gap-0.5 text-[7px] font-black text-white bg-slate-900 px-1.5 py-0.5 rounded shadow-sm hover:bg-black transition-colors cursor-pointer active:scale-95" 
                               title="Click to view uploaded documents"
                             >
                               DOCS
@@ -787,59 +834,87 @@ export default function Records() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden text-left mx-auto"
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden text-left mx-auto flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900">Validate Enrollment</h3>
-                  <p className="text-sm text-slate-500">Assign Student ID and Section</p>
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Validate Enrollment</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Assign Student ID and Section</p>
                 </div>
                 <button onClick={() => setIsValidationModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                   <X className="h-5 w-5 text-slate-400" />
                 </button>
               </div>
               
-              <div className="p-6 pb-2 space-y-6">
-                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
-                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-1">Student</p>
-                  <p className="text-lg font-black text-blue-900 leading-tight">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
-                  <p className="text-xs font-bold text-blue-600/70">{selectedRecord?.course} - {selectedRecord?.yearLevel}</p>
+              <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <User className="h-16 w-16" />
+                  </div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1.5">Student Profile</p>
+                  <p className="text-xl font-black text-slate-900 leading-tight">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                  
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <div className="flex flex-col">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{selectedRecord?.yearLevel === '1st Year' ? '1st Choice' : 'Program'}</span>
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 uppercase tracking-widest">{selectedRecord?.course}</span>
+                    </div>
+                    {selectedRecord?.yearLevel === '1st Year' && selectedRecord.secondChoice && (
+                      <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">2nd Choice</span>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 uppercase tracking-widest">{selectedRecord.secondChoice}</span>
+                      </div>
+                    )}
+                    <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">
+                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Status</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">{selectedRecord?.yearLevel}</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Submitted Documents</p>
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Submitted Documents</p>
+                    <span className="text-[10px] font-black text-blue-600 hover:underline cursor-pointer" onClick={() => setSelectedDetailRecord(selectedRecord)}>View Detailed Profile</span>
+                  </div>
                   <div className="grid grid-cols-4 gap-3">
                     {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
                       const docImg = selectedRecord?.studentInfo.documents?.[docKey as keyof typeof selectedRecord.studentInfo.documents];
-                      const label = docKey === 'twoByTwoPhoto' ? '2x2 Photo' : docKey.replace(/([A-Z])/g, ' $1').trim();
+                      const label = docKey === 'twoByTwoPhoto' ? 'Photo' : docKey.replace(/([A-Z])/g, ' $1').trim().split(' ').pop();
                       
                       return (
-                        <div key={docKey} className="space-y-1.5 flex flex-col items-center">
-                          <p className="text-[7px] font-black text-slate-500 uppercase truncate w-full text-center tracking-tighter">{label}</p>
+                        <div key={docKey} className="space-y-1.5 group">
                           <div 
                             className={cn(
-                              "aspect-square w-full rounded-xl border border-slate-100 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-300 transition-all",
-                              !docImg && "opacity-50"
+                              "aspect-[3/4] w-full rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:shadow-lg hover:shadow-blue-500/10 transition-all",
+                              !docImg && "opacity-40 grayscale"
                             )}
-                            onClick={() => docImg && setPreviewImage({ url: docImg, title: label })}
+                            onClick={() => docImg && setPreviewImage({ url: docImg, title: docKey.replace(/([A-Z])/g, ' $1').trim() })}
                           >
                             {docImg ? (
                               <img src={docImg} alt={label} className="w-full h-full object-cover" />
                             ) : (
-                              <span className="text-[7px] text-slate-300 font-black text-center leading-tight">NOT PROVIDED</span>
+                              <div className="flex flex-col items-center gap-1 opacity-40">
+                                <File className="h-4 w-4 text-slate-400" />
+                                <span className="text-[8px] font-black uppercase">None</span>
+                              </div>
                             )}
                           </div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase text-center truncate group-hover:text-slate-900 transition-colors uppercase tracking-tight">{label}</p>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                <div className="space-y-4 pt-1">
+                <div className="space-y-6 pt-2">
                   {(selectedRecord?.yearLevel !== '1st Year' || (selectedRecord?.examDate && new Date(selectedRecord.examDate).setHours(0,0,0,0) <= new Date().setHours(0,0,0,0))) ? (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest ml-1">Assign Student ID</label>
+                    <div className="space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          Assign Student ID
+                        </label>
                         <input
                           value={validationData.studentId}
                           onChange={(e) => setValidationData({ ...validationData, studentId: e.target.value })}
@@ -847,62 +922,87 @@ export default function Records() {
                           className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         />
                       </div>
-                      <div className="space-y-1.5 text-left">
-                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest ml-1">Assign Section</label>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                          Assign Section
+                        </label>
                         <select 
                           className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium cursor-pointer"
                           value={validationData.section}
-                          onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
+                          onChange={(e) => {
+                            const newSection = e.target.value;
+                            setValidationData({ ...validationData, section: newSection });
+                            
+                            // If 1st year and has second choice, adjust course if section matches second choice
+                            if (selectedRecord?.yearLevel === '1st Year' && selectedRecord.secondChoice) {
+                              const isSecondChoiceSection = newSection.toLowerCase().includes(selectedRecord.secondChoice.toLowerCase());
+                              const isFirstChoiceSection = newSection.toLowerCase().includes(selectedRecord.course.toLowerCase());
+                              
+                              if (isSecondChoiceSection && !isFirstChoiceSection) {
+                                // Update registration data program if it exists
+                                if (registrationData) {
+                                  setRegistrationData({ ...registrationData, program: selectedRecord.secondChoice });
+                                }
+                              } else if (isFirstChoiceSection) {
+                                if (registrationData) {
+                                  setRegistrationData({ ...registrationData, program: selectedRecord.course });
+                                }
+                              }
+                            }
+                          }}
                         >
                           <option value="">Select Section</option>
                           {filteredSectionsForStudent.map(section => (
-                            <option key={section.name} value={section.name}>{section.name}</option>
+                            <option key={section.name} value={section.name}>
+                              {section.name} ({sectionCounts[section.name] || 0} enrolled)
+                            </option>
                           ))}
                         </select>
                       </div>
-                    </>
+                    </div>
                   ) : (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-2">
-                        <Calendar className="h-4 w-4 text-amber-600" />
+                    <div className="space-y-6">
+                      <div className="flex items-center gap-2 text-slate-900 border-b border-slate-100 pb-3">
+                        <Calendar className="h-4 w-4 text-blue-600" />
                         <h4 className="text-[10px] font-black uppercase tracking-widest">Entrance Exam Schedule</h4>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Date</label>
                         <input
                           type="date"
                           value={validationData.examDate}
                           onChange={(e) => setValidationData({ ...validationData, examDate: e.target.value })}
-                          className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Start Time</label>
                           <input
                             type="time"
                             value={validationData.examStartTime}
                             onChange={(e) => setValidationData({ ...validationData, examStartTime: e.target.value })}
-                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           />
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">End Time</label>
                           <input
                             type="time"
                             value={validationData.examEndTime}
                             onChange={(e) => setValidationData({ ...validationData, examEndTime: e.target.value })}
-                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           />
                         </div>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Venue</label>
                         <input
                           value={validationData.examVenue}
                           onChange={(e) => setValidationData({ ...validationData, examVenue: e.target.value })}
                           placeholder="e.g., Computer Lab 1, 3rd Floor"
-                          className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -910,25 +1010,25 @@ export default function Records() {
                 </div>
               </div>
 
-              <div className="p-6 bg-white flex items-center gap-3">
+              <div className="p-6 bg-slate-50 border-t border-slate-200 flex items-center gap-3 shrink-0">
                 <Button 
                   variant="outline" 
-                  className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest border-2 border-blue-600 text-blue-600 hover:bg-blue-50"
+                  className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest border-2 border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
                   onClick={() => setIsValidationModalOpen(false)}
                 >
                   Cancel
                 </Button>
                 {(selectedRecord?.yearLevel !== '1st Year' || (selectedRecord?.examDate && new Date(selectedRecord.examDate).setHours(0,0,0,0) <= new Date().setHours(0,0,0,0))) ? (
                   <Button 
-                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-[#7fbca5] hover:bg-[#6ba38e] text-white"
+                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20"
                     onClick={() => setIsRegistrationModalOpen(true)}
                     disabled={!validationData.studentId || !validationData.section}
                   >
-                    Fill Registration Form
+                    Next: Fill Form
                   </Button>
                 ) : (
                   <Button 
-                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-blue-600 hover:bg-blue-700 text-white"
+                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20"
                     onClick={() => handleValidateSubmit('Validating')}
                     disabled={!validationData.examDate || !validationData.examVenue}
                   >
@@ -959,12 +1059,12 @@ export default function Records() {
             >
               <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/20">
                     <Edit3 className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 leading-none">Official Registration Form Editor</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Student: {selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                    <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">Official Registration Form</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Student: {selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
                   </div>
                 </div>
                 <button onClick={() => setIsRegistrationModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
@@ -972,37 +1072,37 @@ export default function Records() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 bg-slate-50/30 custom-scrollbar">
                 {/* Header Information */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5 bg-white rounded-3xl border border-slate-100 shadow-sm">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Academic Year</label>
+                    <label className="text-[9px] font-black text-slate-900 uppercase tracking-widest ml-1">Academic Year</label>
                     <input 
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                       value={registrationData.academicYear} 
                       onChange={(e) => setRegistrationData({...registrationData, academicYear: e.target.value})} 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Semester</label>
+                    <label className="text-[9px] font-black text-slate-900 uppercase tracking-widest ml-1">Semester</label>
                     <input 
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                       value={registrationData.semester} 
                       onChange={(e) => setRegistrationData({...registrationData, semester: e.target.value})} 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Program</label>
+                    <label className="text-[9px] font-black text-slate-900 uppercase tracking-widest ml-1">Program</label>
                     <input 
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                       value={registrationData.program} 
                       onChange={(e) => setRegistrationData({...registrationData, program: e.target.value})} 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Institute</label>
+                    <label className="text-[9px] font-black text-slate-900 uppercase tracking-widest ml-1">Institute</label>
                     <input 
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                       value={registrationData.institute} 
                       onChange={(e) => setRegistrationData({...registrationData, institute: e.target.value})} 
                     />
@@ -1014,6 +1114,10 @@ export default function Records() {
                   <div className="p-4 border-b border-slate-50 flex items-center justify-between">
                     <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Courses Enrolled</h4>
                     <Button size="sm" className="h-8 rounded-lg text-[10px] font-black uppercase tracking-widest" onClick={() => {
+                      if (selectedRecord?.yearLevel === '1st Year' && registrationData.courses.length >= 10) {
+                        toast.error("1st Year students are limited to 10 subjects only.");
+                        return;
+                      }
                       const newCourse = { code: '', description: '', section: validationData.section, lec: 0, lab: 0, compLab: 0, units: 3, rate: 250, fee: 750 };
                       setRegistrationData({
                         ...registrationData,
@@ -1024,7 +1128,7 @@ export default function Records() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className="bg-slate-50 text-[8px] uppercase font-black text-slate-400 tracking-wider">
+                        <tr className="bg-slate-900 text-[8px] uppercase font-black text-white tracking-wider">
                           <th className="px-4 py-3">Code</th>
                           <th className="px-4 py-3">Description</th>
                           <th className="px-4 py-3">Section</th>
@@ -1041,7 +1145,7 @@ export default function Records() {
                           <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-2 min-w-[100px]">
                               <input 
-                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold focus:ring-1 focus:ring-blue-500" 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500" 
                                 value={course.code} 
                                 placeholder="e.g. ITELECT4"
                                 onChange={(e) => {
@@ -1053,7 +1157,7 @@ export default function Records() {
                             </td>
                             <td className="p-2 min-w-[200px]">
                               <input 
-                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold focus:ring-1 focus:ring-blue-500" 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500" 
                                 value={course.description} 
                                 placeholder="e.g. ITELECTIVE 4"
                                 onChange={(e) => {
@@ -1065,7 +1169,7 @@ export default function Records() {
                             </td>
                             <td className="p-2 w-24">
                               <input 
-                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500" 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 text-center focus:ring-1 focus:ring-blue-500" 
                                 value={course.section} 
                                 onChange={(e) => {
                                   const newCourses = [...registrationData.courses];
@@ -1077,11 +1181,12 @@ export default function Records() {
                             <td className="p-2 w-12 text-center">
                               <input 
                                 type="number" 
-                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                value={course.lec || ''} 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.lec === 0 ? '' : course.lec} 
+                                placeholder="0"
                                 onChange={(e) => {
                                   const newCourses = [...registrationData.courses];
-                                  newCourses[idx].lec = Number(e.target.value);
+                                  newCourses[idx].lec = e.target.value === '' ? 0 : Number(e.target.value);
                                   setRegistrationData({...registrationData, courses: newCourses});
                                 }} 
                               />
@@ -1089,11 +1194,12 @@ export default function Records() {
                             <td className="p-2 w-12 text-center">
                               <input 
                                 type="number" 
-                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                value={course.lab || ''} 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.lab === 0 ? '' : course.lab} 
+                                placeholder="0"
                                 onChange={(e) => {
                                   const newCourses = [...registrationData.courses];
-                                  newCourses[idx].lab = Number(e.target.value);
+                                  newCourses[idx].lab = e.target.value === '' ? 0 : Number(e.target.value);
                                   setRegistrationData({...registrationData, courses: newCourses});
                                 }} 
                               />
@@ -1101,11 +1207,12 @@ export default function Records() {
                             <td className="p-2 w-12 text-center">
                               <input 
                                 type="number" 
-                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                value={course.compLab || ''} 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.compLab === 0 ? '' : course.compLab} 
+                                placeholder="0"
                                 onChange={(e) => {
                                   const newCourses = [...registrationData.courses];
-                                  newCourses[idx].compLab = Number(e.target.value);
+                                  newCourses[idx].compLab = e.target.value === '' ? 0 : Number(e.target.value);
                                   setRegistrationData({...registrationData, courses: newCourses});
                                 }} 
                               />
@@ -1113,11 +1220,12 @@ export default function Records() {
                             <td className="p-2 w-12 text-center">
                               <input 
                                 type="number" 
-                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                value={course.units || ''} 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-slate-900 text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.units === 0 ? '' : course.units} 
+                                placeholder="0"
                                 onChange={(e) => {
                                   const newCourses = [...registrationData.courses];
-                                  newCourses[idx].units = Number(e.target.value);
+                                  newCourses[idx].units = e.target.value === '' ? 0 : Number(e.target.value);
                                   setRegistrationData({...registrationData, courses: newCourses});
                                 }} 
                               />
@@ -1160,13 +1268,15 @@ export default function Records() {
                         if (key === 'total') return null;
                         return (
                           <div key={key} className="flex items-center justify-between">
-                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">{key.replace(/([A-Z])/g, ' $1')}</label>
+                            <label className="text-[8px] font-black text-slate-900 uppercase tracking-tighter">{key.replace(/([A-Z])/g, ' $1')}</label>
                             <input 
                               type="number" 
-                              className="w-20 h-7 text-right px-2 bg-slate-50 rounded-md border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                              value={registrationData.assessedFees[key] || ''} 
+                              className="w-20 h-7 text-right px-2 bg-slate-50 rounded-md border-none text-[10px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                              value={registrationData.assessedFees[key] === 0 ? '' : registrationData.assessedFees[key]} 
+                              placeholder="0"
                               onChange={(e) => {
-                                const newFees = {...registrationData.assessedFees, [key]: Number(e.target.value)};
+                                const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                const newFees = {...registrationData.assessedFees, [key]: val};
                                 const total = Object.keys(newFees).reduce((acc, k) => k === 'total' ? acc : acc + newFees[k], 0);
                                 setRegistrationData({...registrationData, assessedFees: {...newFees, total}});
                               }}
@@ -1188,27 +1298,27 @@ export default function Records() {
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Mode</label>
+                        <label className="text-[8px] font-black text-slate-900 uppercase tracking-widest ml-1">Mode</label>
                         <input 
-                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
+                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500"
                           value={registrationData.paymentDetails.mode} 
                           onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, mode: e.target.value}})} 
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>
+                        <label className="text-[8px] font-black text-slate-900 uppercase tracking-widest ml-1">Amount</label>
                         <input 
-                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
+                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500"
                           value={registrationData.paymentDetails.amount} 
                           onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, amount: e.target.value}})} 
                         />
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Date Paid</label>
+                      <label className="text-[8px] font-black text-slate-900 uppercase tracking-widest ml-1">Date Paid</label>
                       <input 
                         type="date"
-                        className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
+                        className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold text-slate-900 focus:ring-1 focus:ring-blue-500"
                         value={registrationData.paymentDetails.date} 
                         onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, date: e.target.value}})} 
                       />

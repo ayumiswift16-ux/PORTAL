@@ -34,7 +34,7 @@ import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord, User as UserType, SystemSettings } from '../types';
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '@/src/lib/firebase';
-import { doc, getDoc, collection, getDocs, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 
 const STATS = [
   { label: 'Total Students', value: '1,284', icon: Users, color: 'text-slate-900', bg: 'bg-emerald-100', trend: '+12.5%' },
@@ -71,17 +71,19 @@ export default function Dashboard({ user }: DashboardProps) {
     let dataUnsub = () => {};
 
     if (isAdmin) {
-      const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'));
+      // Use query limit to reduce data consumption
+      const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(50));
       dataUnsub = onSnapshot(q, (querySnapshot) => {
         const allDocs = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as EnrollmentRecord);
         
+        // Stats based on the latest 50 records (as a proxy for global stats to save quota)
         const total = allDocs.length;
         const approved = allDocs.filter(d => d.status === 'Enrolled').length;
         const pending = allDocs.filter(d => d.status === 'Validating').length;
         const active = allDocs.filter(d => d.status === 'Approved' || d.status === 'Enrolled').length;
 
         setStats([
-          { label: 'Total Students', value: total.toLocaleString(), icon: Users, color: 'text-slate-900', bg: 'bg-emerald-100', trend: '--' },
+          { label: 'Total Records', value: total.toLocaleString(), icon: Users, color: 'text-slate-900', bg: 'bg-emerald-100', trend: '--' },
           { label: 'Active Enrollees', value: active.toLocaleString(), icon: GraduationCap, color: 'text-slate-900', bg: 'bg-green-100', trend: '--' },
           { label: 'Approved', value: approved.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100', trend: '--' },
           { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
@@ -91,7 +93,6 @@ export default function Dashboard({ user }: DashboardProps) {
         console.error("Firestore Error in Admin Dashboard data:", error);
       });
     } else {
-      // For students, the doc ID for enrollment is their username (userId)
       dataUnsub = onSnapshot(doc(db, 'enrollments', user.username), (docSnap) => {
         if (docSnap.exists()) {
           setEnrollmentRecord({ ...docSnap.data(), id: docSnap.id } as EnrollmentRecord);
@@ -598,6 +599,18 @@ export default function Dashboard({ user }: DashboardProps) {
                   </div>
                 </div>
                 <div className="space-y-4 text-left">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-600">Selected Program:</span>
+                    <span className="text-sm font-bold text-blue-600">{enrollmentRecord?.course}</span>
+                  </div>
+                  
+                  {enrollmentRecord?.studentInfo.yearLevel === '1st Year' && enrollmentRecord?.secondChoice && (
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                      <span className="text-sm font-medium text-slate-600">Second Choice:</span>
+                      <span className="text-sm font-bold text-emerald-600">{enrollmentRecord.secondChoice}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
                     <span className="text-sm font-medium text-slate-600">Current Status:</span>
                     <span className={cn(

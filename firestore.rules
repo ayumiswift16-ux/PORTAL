@@ -1,117 +1,65 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
     
-    // 0. Global Safety Net
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Phase 3: Primitives
-    function isSignedIn() {
-      return request.auth != null;
+    // Admins have full access to everything
+    match /{path=**} {
+      allow read, write: if isAdmin();
     }
 
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.get('email', '') == 'davevenzon789@gmail.com' ||
-        request.auth.token.get('email', '').matches('^admin[1-5]@school\\.portal$')
-      );
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Enrollment Validation
-    function isValidEnrollment(data) {
-      return data.studentInfo is map &&
-             data.studentInfo.firstName is string && data.studentInfo.firstName.size() <= 100 &&
-             data.studentInfo.lastName is string && data.studentInfo.lastName.size() <= 100 &&
-             data.type in ['Regular', 'Irregular', 'Returnee'] &&
-             data.status in ['Pending', 'Approved', 'Rejected', 'Enrolled', 'Validating'] &&
-             (!('examDate' in data) || data.examDate is string) &&
-             (!('examStartTime' in data) || data.examStartTime is string) &&
-             (!('examEndTime' in data) || data.examEndTime is string) &&
-             (!('examVenue' in data) || data.examVenue is string);
-    }
-
-    // 1. Enrollments
-    match /enrollments/{enrollmentId} {
-      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow get: if isAdmin() || (isSignedIn() && (enrollmentId == request.auth.uid || (resource != null && existing().userId == request.auth.uid)));
-      
-      allow create: if (isAdmin() || (isSignedIn() && incoming().userId == request.auth.uid)) && 
-                      isValidEnrollment(incoming()) && 
-                      incoming().status == 'Validating';
-
-      allow update: if (isAdmin() && isValidEnrollment(incoming())) || (
-        isSignedIn() && 
-        existing().userId == request.auth.uid && 
-        isValidEnrollment(incoming()) &&
-        existing().status != 'Enrolled' &&
-        incoming().userId == existing().userId &&
-        incoming().status == existing().status &&
-        incoming().diff(existing()).affectedKeys().hasOnly([
-          'studentInfo', 'type', 'course', 'yearLevel', 'enrolledAt', 'updatedAt', 'id'
-        ])
-      );
-
-      allow delete: if isAdmin();
-    }
-
-    // 2. Sections
-    match /sections/{sectionId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // 3. Schedules
-    match /schedules/{scheduleId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // 4. Settings
-    match /settings/{settingId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // 5. Users
+    // Users collection
     match /users/{userId} {
-      allow list: if isAdmin() || (isSignedIn() && resource.data.role == 'admin');
-      allow get: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
-      allow create: if isSignedIn() && userId == request.auth.uid;
-      allow update: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || isAdmin();
     }
 
-    // 6. Notifications
-    match /notifications/{notificationId} {
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow get: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && (
-        isAdmin() || 
-        get(/databases/$(database)/documents/users/$(incoming().userId)).data.role == 'admin'
-      );
-      allow update: if isAdmin() || (
-        isSignedIn() && 
-        resource.data.userId == request.auth.uid && 
-        incoming().diff(existing()).affectedKeys().hasOnly(['read'])
-      );
-      allow delete: if isAdmin();
+    // Enrollments
+    match /enrollments/{enrollmentId} {
+      allow read: if isSignedIn(); // Students need to read their own, keep it simple for now
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // Sections
+    match /sections/{sectionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable via console
+    }
+    
+    // System settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }

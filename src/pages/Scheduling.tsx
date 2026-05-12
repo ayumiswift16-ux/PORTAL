@@ -265,16 +265,15 @@ export default function Scheduling() {
           {isAdmin && (
             <>
               <Button 
-                variant="ghost" 
                 onClick={() => setIsManagingSections(true)} 
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20"
               >
                 <Settings className="h-4 w-4" />
                 Manage Sections
               </Button>
               <Button 
                 onClick={() => setIsAdding(true)} 
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20"
               >
                 <Plus className="h-4 w-4" />
                 Add New Schedule
