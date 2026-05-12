@@ -42,6 +42,7 @@ export interface EnrollmentRecord {
   secondChoice?: Course;
   yearLevel: YearLevel;
   status: 'Pending' | 'Approved' | 'Rejected' | 'Enrolled' | 'Validating';
+  submittedAt?: string;
   enrolledAt: string;
   updatedAt?: string;
   studentId?: string;

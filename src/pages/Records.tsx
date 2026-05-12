@@ -204,7 +204,8 @@ export default function Records() {
         studentId: validationData.studentId,
         section: validationData.section,
         course: finalCourse,
-        enrolledAt: now, 
+        enrolledAt: now,
+        updatedAt: now, 
         'studentInfo.studentId': validationData.studentId,
         'studentInfo.section': validationData.section,
         registrationForm: { ...registrationData, program: finalCourse }
@@ -274,6 +275,7 @@ export default function Records() {
         examStartTime: validationData.examStartTime,
         examEndTime: validationData.examEndTime,
         examVenue: validationData.examVenue,
+        updatedAt: now,
         'studentInfo.studentId': validationData.studentId,
         'studentInfo.section': validationData.section
       };
@@ -281,7 +283,7 @@ export default function Records() {
       if (targetStatus === 'Enrolled') {
         updates.enrolledAt = now;
       }
-      
+
       await updateDoc(docRef, updates);
 
       // Send notification to student
@@ -318,13 +320,30 @@ export default function Records() {
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
     
+    // Find the record first to get the userId
+    const recordToDelete = enrollments.find(e => e.id === deleteConfirmId);
+    
     try {
+      // 1. Delete Enrollment Record
       await deleteDoc(doc(db, 'enrollments', deleteConfirmId));
-      toast.success('Record deleted successfully');
+      
+      // 2. Clear associated user data if userId exists
+      if (recordToDelete?.userId) {
+        // Delete user document from 'users' collection
+        await deleteDoc(doc(db, 'users', recordToDelete.userId));
+        
+        // Delete notifications associated with this user
+        const notifQuery = query(collection(db, 'notifications'), where('userId', '==', recordToDelete.userId));
+        const notifSnap = await getDocs(notifQuery);
+        const deleteNotifPromises = notifSnap.docs.map(d => deleteDoc(d.ref));
+        await Promise.all(deleteNotifPromises);
+      }
+      
+      toast.success('Record and student data wiped successfully');
       setDeleteConfirmId(null);
     } catch (error) {
       console.error("Delete error:", error);
-      toast.error("Failed to delete record. Check your permissions.");
+      toast.error("Failed to wipe record. Check your permissions.");
       setDeleteConfirmId(null);
     }
   };
@@ -444,7 +463,7 @@ export default function Records() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <p className="text-xs font-black text-slate-900 leading-tight">{enrollment.course}</p>
                           {enrollment.status !== 'Enrolled' && enrollment.secondChoice && (
-                            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded leading-none">/ {enrollment.secondChoice}</span>
+                            <span className="text-[9px] font-black text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded leading-none">/ {enrollment.secondChoice}</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -487,7 +506,7 @@ export default function Records() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs font-medium text-slate-400">
-                      {enrollment.enrolledAt.split(' ')[0]}
+                      {(enrollment.submittedAt || enrollment.enrolledAt).split('T')[0]}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -717,7 +736,7 @@ export default function Records() {
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Applied At</p>
                         <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
                           <Clock className="h-3.5 w-3.5 text-slate-400" />
-                          {selectedDetailRecord.enrolledAt}
+                          {selectedDetailRecord.submittedAt || selectedDetailRecord.enrolledAt}
                         </p>
                       </div>
                     </div>
@@ -862,7 +881,7 @@ export default function Records() {
                     {selectedRecord?.yearLevel === '1st Year' && selectedRecord.secondChoice && (
                       <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">
                         <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">2nd Choice</span>
-                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 uppercase tracking-widest">{selectedRecord.secondChoice}</span>
+                        <span className="text-[10px] font-black text-slate-900 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 uppercase tracking-widest">{selectedRecord.secondChoice}</span>
                       </div>
                     )}
                     <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">

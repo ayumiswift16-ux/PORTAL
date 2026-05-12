@@ -7,11 +7,15 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        request.auth.token.email == 'davevenzon789@gmail.com' ||
+        request.auth.token.email.matches('.*@school\\.portal') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'davevenzon789@gmail.com');
     }
 
     // Default deny
@@ -24,6 +28,30 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Settings
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Courses
+    match /courses/{courseId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow write: if isSignedIn();
+    }
+
     // Users collection
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -32,9 +60,23 @@ service cloud.firestore {
 
     // Enrollments
     match /enrollments/{enrollmentId} {
-      allow read: if isSignedIn(); // Students need to read their own, keep it simple for now
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        (resource != null && (resource.data.studentInfo.email == request.auth.token.email || resource.data.userId == request.auth.uid))
+      );
+      allow get: if isSignedIn() && (
+        isAdmin() || 
+        enrollmentId == request.auth.uid ||
+        (resource != null && (resource.data.studentInfo.email == request.auth.token.email || resource.data.userId == request.auth.uid)) ||
+        (resource == null)
+      );
       allow create: if isSignedIn();
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        resource.data.studentInfo.email == request.auth.token.email ||
+        (resource == null)
+      ));
+      allow delete: if isAdmin();
     }
 
     // Sections

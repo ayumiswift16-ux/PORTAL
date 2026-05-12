@@ -82,8 +82,8 @@ export default function Enroll() {
       const parsedUser = JSON.parse(savedUser);
       setUser(parsedUser);
       
-      // Auto-populate email from auth
-      if (parsedUser.email && !studentInfo.email) {
+      // Auto-populate email from auth - only if not admin (admin might be enrolling someone else)
+      if (parsedUser.email && !studentInfo.email && parsedUser.role !== 'admin') {
         setStudentInfo(prev => ({ ...prev, email: parsedUser.email }));
       }
       
@@ -275,12 +275,21 @@ export default function Enroll() {
 
     // Only set enrolledAt if it's a new enrollment
     if (enrollmentStatus === 'Not Started') {
+      recordUpdates.submittedAt = now;
       recordUpdates.enrolledAt = now;
     }
 
     try {
       // Save to Firestore with merge to preserve fields like examDate
-      const docRef = doc(db, 'enrollments', user?.username || '');
+      // For admins enrolling others, use a random ID. For students, use their UID.
+      const docId = (isAdmin && !enrollmentRecord) ? `manual_${Date.now()}` : (user?.username || '');
+      const docRef = doc(db, 'enrollments', docId);
+      
+      // If admin is enrolling, userId should be empty (will be auto-linked by email later)
+      if (isAdmin && !enrollmentRecord) {
+        recordUpdates.userId = "";
+      }
+
       await setDoc(docRef, recordUpdates, { merge: true });
 
       setIsSubmitting(false);
@@ -1092,13 +1101,13 @@ export default function Enroll() {
                         <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest text-left">Enrollment Details</p>
                         <div className="p-4 bg-white rounded-2xl shadow-sm space-y-3">
                           <div className="flex justify-between items-center text-sm">
-                            <span className="text-slate-500">{studentInfo.yearLevel === '1st Year' ? '1st Choice' : 'Course'}</span>
-                            <span className="font-bold text-blue-600">{selectedCourse}</span>
+                            <span className="text-slate-500 font-bold text-slate-900">{studentInfo.yearLevel === '1st Year' ? '1st Choice' : 'Course'}</span>
+                            <span className="font-bold text-slate-900">{selectedCourse}</span>
                           </div>
                           {studentInfo.yearLevel === '1st Year' && secondChoice && (
                             <div className="flex justify-between items-center text-sm">
-                              <span className="text-slate-500">2nd Choice</span>
-                              <span className="font-bold text-emerald-600">{secondChoice}</span>
+                              <span className="text-slate-500 font-bold text-slate-900">2nd Choice</span>
+                              <span className="font-bold text-slate-900">{secondChoice}</span>
                             </div>
                           )}
                           <div className="flex justify-between items-center text-sm">

@@ -93,14 +93,43 @@ export default function Dashboard({ user }: DashboardProps) {
         console.error("Firestore Error in Admin Dashboard data:", error);
       });
     } else {
-      dataUnsub = onSnapshot(doc(db, 'enrollments', user.username), (docSnap) => {
-        if (docSnap.exists()) {
-          setEnrollmentRecord({ ...docSnap.data(), id: docSnap.id } as EnrollmentRecord);
+      // For students, fetch by email query to handle admin-created enrollments
+      const q = query(
+        collection(db, 'enrollments'), 
+        where('studentInfo.email', '==', user.email)
+      );
+      
+      dataUnsub = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          // Find the best record (usually just one, but if multiple, use the most recent)
+          const enrollDoc = snapshot.docs[0];
+          const enrollData = { ...enrollDoc.data(), id: enrollDoc.id } as EnrollmentRecord;
+          setEnrollmentRecord(enrollData);
+
+          // Auto-link: if the enrollment record doesn't have the correct userId (UID)
+          // update it so notifications and future fetches work correctly
+          if (enrollData.userId !== user.username) {
+            import('firebase/firestore').then(({ doc, updateDoc }) => {
+              updateDoc(doc(db, 'enrollments', enrollDoc.id), {
+                userId: user.username
+              }).catch(err => console.error("Error auto-linking enrollment:", err));
+            });
+          }
         } else {
-          setEnrollmentRecord(null);
+          // Fallback: try direct fetch by username/UID (original behavior)
+          getDoc(doc(db, 'enrollments', user.username)).then((docSnap) => {
+            if (docSnap.exists()) {
+              setEnrollmentRecord({ ...docSnap.data(), id: docSnap.id } as EnrollmentRecord);
+            } else {
+              setEnrollmentRecord(null);
+            }
+          }).catch(err => {
+            console.error("Fallback fetch error:", err);
+            setEnrollmentRecord(null);
+          });
         }
       }, (error) => {
-        console.error("Firestore Error in Student Dashboard data:", error);
+        console.error("Firestore Error in Student Dashboard data fetch:", error);
       });
     }
 
@@ -408,7 +437,14 @@ export default function Dashboard({ user }: DashboardProps) {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm font-medium text-slate-600">{enrollment.course}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <p className="text-sm font-bold text-slate-900">{enrollment.course}</p>
+                          {enrollment.studentInfo.yearLevel === '1st Year' && enrollment.secondChoice && (
+                            <p className="text-[10px] font-black text-slate-900 opacity-60">/ {enrollment.secondChoice}</p>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-600">{enrollment.studentInfo.yearLevel}</td>
                       <td className="px-6 py-4">
                         <span className={cn(
@@ -466,12 +502,22 @@ export default function Dashboard({ user }: DashboardProps) {
                         enrollmentRecord ? "text-[#052e16]" : "text-slate-300"
                       )}>Submitted</span>
                       <Edit3 className={cn("h-6 w-6 mb-4", enrollmentRecord ? "text-[#052e16]" : "text-slate-200")} />
-                      {enrollmentRecord && (
-                        <div className="text-center">
-                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.enrolledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.enrolledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                        </div>
-                      )}
+                      {enrollmentRecord && (() => {
+                        let submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
+                        const enrolledTime = enrollmentRecord.status === 'Enrolled' && enrollmentRecord.updatedAt ? new Date(enrollmentRecord.updatedAt) : null;
+                        
+                        // If they are flipped (common in some migration states), swap them for display consistency
+                        if (enrolledTime && submissionTime > enrolledTime) {
+                          submissionTime = enrolledTime;
+                        }
+
+                        return (
+                          <div className="text-center">
+                            <p className="text-xs font-bold text-[#052e16]">{submissionTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                            <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{submissionTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Step 2: Assessment */}
@@ -524,16 +570,22 @@ export default function Dashboard({ user }: DashboardProps) {
                             </>
                           )}
                         </div>
-                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') && enrollmentRecord?.updatedAt ? (
-                        <div className="text-center py-2">
-                           <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
+                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') && enrollmentRecord?.updatedAt ? (() => {
+                        const submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
+                        const updatedAtTime = new Date(enrollmentRecord.updatedAt);
+                        const assessmentTime = updatedAtTime < submissionTime ? submissionTime : updatedAtTime;
+
+                        return (
+                          <div className="text-center py-2">
+                             <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
+                            </div>
+                            <p className="text-xs font-bold text-[#052e16]">{assessmentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                            <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{assessmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
-                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                        </div>
-                      ) : null}
+                        );
+                      })() : null}
                     </div>
 
                     {/* Step 3: Enrolled */}
@@ -547,12 +599,25 @@ export default function Dashboard({ user }: DashboardProps) {
                         studentStatus === 'Enrolled' ? "text-[#052e16]" : "text-slate-300"
                       )}>Enrolled</span>
                       <CheckSquare className={cn("h-6 w-6 mb-4", studentStatus === 'Enrolled' ? "text-[#052e16]" : "text-slate-200")} />
-                      {studentStatus === 'Enrolled' && enrollmentRecord?.updatedAt && (
-                        <div className="text-center">
-                          <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                          <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                        </div>
-                      )}
+                      {studentStatus === 'Enrolled' && enrollmentRecord && (() => {
+                        const submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
+                        const enrolledAtTime = new Date(enrollmentRecord.enrolledAt);
+                        const updatedAtTime = enrollmentRecord.updatedAt ? new Date(enrollmentRecord.updatedAt) : enrolledAtTime;
+                        
+                        // Use the maximum of all relevant timestamps for the final enrollment display
+                        const enrolledTime = new Date(Math.max(
+                          submissionTime.getTime(),
+                          enrolledAtTime.getTime(),
+                          updatedAtTime.getTime()
+                        ));
+
+                        return (
+                          <div className="text-center">
+                            <p className="text-xs font-bold text-[#052e16]">{enrolledTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                            <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{enrolledTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -600,14 +665,14 @@ export default function Dashboard({ user }: DashboardProps) {
                 </div>
                 <div className="space-y-4 text-left">
                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-600">Selected Program:</span>
-                    <span className="text-sm font-bold text-blue-600">{enrollmentRecord?.course}</span>
+                    <span className="text-sm font-bold text-slate-900">Selected Program:</span>
+                    <span className="text-sm font-black text-slate-900">{enrollmentRecord?.course}</span>
                   </div>
                   
                   {enrollmentRecord?.studentInfo.yearLevel === '1st Year' && enrollmentRecord?.secondChoice && (
                     <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                      <span className="text-sm font-medium text-slate-600">Second Choice:</span>
-                      <span className="text-sm font-bold text-emerald-600">{enrollmentRecord.secondChoice}</span>
+                      <span className="text-sm font-bold text-slate-900">Second Choice:</span>
+                      <span className="text-sm font-black text-slate-900">{enrollmentRecord.secondChoice}</span>
                     </div>
                   )}
 
