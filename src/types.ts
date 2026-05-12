@@ -18,6 +18,12 @@ export interface StudentInfo {
   age: string;
   gender: string;
   address: string;
+  addressDetails?: {
+    province: string;
+    city: string;
+    barangay: string;
+    street: string;
+  };
   contactNumber: string;
   email: string;
   birthday: string;

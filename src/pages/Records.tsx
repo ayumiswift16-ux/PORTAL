@@ -787,159 +787,154 @@ export default function Records() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden text-left"
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden text-left mx-auto"
             >
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900">
-                    {selectedRecord?.status === 'Enrolled' ? 'Update Information' : 'Validate Enrollment'}
-                  </h3>
-                  <p className="text-sm text-slate-500">
-                    {selectedRecord?.status === 'Enrolled' ? 'Modify Student ID and Section' : 'Assign Student ID and Section'}
-                  </p>
+                  <h3 className="text-xl font-bold text-slate-900">Validate Enrollment</h3>
+                  <p className="text-sm text-slate-500">Assign Student ID and Section</p>
                 </div>
                 <button onClick={() => setIsValidationModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                   <X className="h-5 w-5 text-slate-400" />
                 </button>
               </div>
               
-              <div className="p-6 space-y-6">
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <p className="text-xs font-bold text-blue-700 uppercase tracking-widest mb-1">Student</p>
-                  <p className="text-sm font-bold text-blue-900">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
-                  <p className="text-xs text-blue-600">{selectedRecord?.course} - {selectedRecord?.yearLevel}</p>
+              <div className="p-6 pb-2 space-y-6">
+                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-1">Student</p>
+                  <p className="text-lg font-black text-blue-900 leading-tight">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                  <p className="text-xs font-bold text-blue-600/70">{selectedRecord?.course} - {selectedRecord?.yearLevel}</p>
                 </div>
 
-                {selectedRecord?.studentInfo.documents && (
-                  <div className="space-y-3">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Submitted Documents</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
-                        const docImg = selectedRecord.studentInfo.documents?.[docKey as keyof typeof selectedRecord.studentInfo.documents];
-                        const label = docKey === 'twoByTwoPhoto' ? '2x2 Photo' : docKey.replace(/([A-Z])/g, ' $1').trim();
-                        
-                        return (
-                          <div key={docKey} className="space-y-1">
-                            <p className="text-[9px] font-bold text-slate-500 uppercase truncate px-1">{label}</p>
-                            <div 
-                              className={cn(
-                                "aspect-square rounded-lg border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-300 transition-colors",
-                                !docImg && "opacity-50 grayscale"
-                              )}
-                              onClick={() => docImg && setPreviewImage({ url: docImg, title: label })}
-                            >
-                              {docImg ? (
-                                <img src={docImg} alt={label} className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-[8px] text-slate-400 font-bold px-2 text-center">NOT PROVIDED</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-4 pt-2">
-                  {selectedRecord?.yearLevel !== '1st Year' ? (
-                    <>
-                      <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-2">
-                        <School className="h-4 w-4 text-blue-600" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">Enrollment Details</h4>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <Input
-                            label="Student ID"
-                            value={validationData.studentId}
-                            onChange={(e) => setValidationData({ ...validationData, studentId: e.target.value })}
-                            placeholder="2024-XXXXX"
-                            className="h-10 text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1.5 text-left">
-                          <label className="text-xs font-bold text-slate-700 ml-1">Assign Section</label>
-                          <select 
-                            className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
-                            value={validationData.section}
-                            onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Submitted Documents</p>
+                  <div className="grid grid-cols-4 gap-3">
+                    {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
+                      const docImg = selectedRecord?.studentInfo.documents?.[docKey as keyof typeof selectedRecord.studentInfo.documents];
+                      const label = docKey === 'twoByTwoPhoto' ? '2x2 Photo' : docKey.replace(/([A-Z])/g, ' $1').trim();
+                      
+                      return (
+                        <div key={docKey} className="space-y-1.5 flex flex-col items-center">
+                          <p className="text-[7px] font-black text-slate-500 uppercase truncate w-full text-center tracking-tighter">{label}</p>
+                          <div 
+                            className={cn(
+                              "aspect-square w-full rounded-xl border border-slate-100 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-300 transition-all",
+                              !docImg && "opacity-50"
+                            )}
+                            onClick={() => docImg && setPreviewImage({ url: docImg, title: label })}
                           >
-                            <option value="">Select Section</option>
-                            {filteredSectionsForStudent.map(section => (
-                              <option key={section.name} value={section.name}>{section.name}</option>
-                            ))}
-                          </select>
+                            {docImg ? (
+                              <img src={docImg} alt={label} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-[7px] text-slate-300 font-black text-center leading-tight">NOT PROVIDED</span>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-1">
+                  {(selectedRecord?.yearLevel !== '1st Year' || (selectedRecord?.examDate && new Date(selectedRecord.examDate).setHours(0,0,0,0) <= new Date().setHours(0,0,0,0))) ? (
+                    <>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest ml-1">Assign Student ID</label>
+                        <input
+                          value={validationData.studentId}
+                          onChange={(e) => setValidationData({ ...validationData, studentId: e.target.value })}
+                          placeholder="e.g. 2026-XXXXX"
+                          className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-left">
+                        <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest ml-1">Assign Section</label>
+                        <select 
+                          className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium cursor-pointer"
+                          value={validationData.section}
+                          onChange={(e) => setValidationData({ ...validationData, section: e.target.value })}
+                        >
+                          <option value="">Select Section</option>
+                          {filteredSectionsForStudent.map(section => (
+                            <option key={section.name} value={section.name}>{section.name}</option>
+                          ))}
+                        </select>
                       </div>
                     </>
                   ) : (
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-2">
                         <Calendar className="h-4 w-4 text-amber-600" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">Entrance Exam Schedule</h4>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest">Entrance Exam Schedule</h4>
                       </div>
-                      <Input
-                        label="Exam Date"
-                        type="date"
-                        value={validationData.examDate}
-                        onChange={(e) => setValidationData({ ...validationData, examDate: e.target.value })}
-                        className="h-10 text-sm"
-                      />
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Date</label>
+                        <input
+                          type="date"
+                          value={validationData.examDate}
+                          onChange={(e) => setValidationData({ ...validationData, examDate: e.target.value })}
+                          className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        />
+                      </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <Input
-                          label="Start Time"
-                          type="time"
-                          value={validationData.examStartTime}
-                          onChange={(e) => setValidationData({ ...validationData, examStartTime: e.target.value })}
-                          className="h-10 text-sm"
-                        />
-                        <Input
-                          label="End Time"
-                          type="time"
-                          value={validationData.examEndTime}
-                          onChange={(e) => setValidationData({ ...validationData, examEndTime: e.target.value })}
-                          className="h-10 text-sm"
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Start Time</label>
+                          <input
+                            type="time"
+                            value={validationData.examStartTime}
+                            onChange={(e) => setValidationData({ ...validationData, examStartTime: e.target.value })}
+                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">End Time</label>
+                          <input
+                            type="time"
+                            value={validationData.examEndTime}
+                            onChange={(e) => setValidationData({ ...validationData, examEndTime: e.target.value })}
+                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Venue</label>
+                        <input
+                          value={validationData.examVenue}
+                          onChange={(e) => setValidationData({ ...validationData, examVenue: e.target.value })}
+                          placeholder="e.g., Computer Lab 1, 3rd Floor"
+                          className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         />
                       </div>
-                      <Input
-                        label="Exam Venue"
-                        value={validationData.examVenue}
-                        onChange={(e) => setValidationData({ ...validationData, examVenue: e.target.value })}
-                        placeholder="e.g., Computer Lab 1, 3rd Floor"
-                        className="h-10 text-sm"
-                      />
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
-                <div className="flex gap-3">
+              <div className="p-6 bg-white flex items-center gap-3">
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest border-2 border-blue-600 text-blue-600 hover:bg-blue-50"
+                  onClick={() => setIsValidationModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                {(selectedRecord?.yearLevel !== '1st Year' || (selectedRecord?.examDate && new Date(selectedRecord.examDate).setHours(0,0,0,0) <= new Date().setHours(0,0,0,0))) ? (
                   <Button 
-                    variant="outline" 
-                    className="flex-1 rounded-xl h-12 text-xs font-bold uppercase tracking-widest"
-                    onClick={() => handleValidateSubmit('Validating')}
-                  >
-                    Save Changes
-                  </Button>
-                  <Button 
-                    className={cn(
-                      "flex-1 rounded-xl h-12 text-xs font-bold uppercase tracking-widest",
-                      selectedRecord?.status === 'Enrolled' ? "bg-blue-600 hover:bg-blue-700" : "bg-emerald-600 hover:bg-emerald-700"
-                    )}
+                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-[#7fbca5] hover:bg-[#6ba38e] text-white"
                     onClick={() => setIsRegistrationModalOpen(true)}
                     disabled={!validationData.studentId || !validationData.section}
                   >
-                    {selectedRecord?.status === 'Enrolled' ? 'Update Form' : 'Fill Registration'}
+                    Fill Registration Form
                   </Button>
-                </div>
-                <button 
-                  onClick={() => setIsValidationModalOpen(false)}
-                  className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
-                >
-                  Close Modal
-                </button>
+                ) : (
+                  <Button 
+                    className="flex-1 rounded-xl h-12 text-[10px] font-black uppercase tracking-widest bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => handleValidateSubmit('Validating')}
+                    disabled={!validationData.examDate || !validationData.examVenue}
+                  >
+                    Schedule Exam
+                  </Button>
+                )}
               </div>
             </motion.div>
           </div>
@@ -960,53 +955,65 @@ export default function Records() {
               initial={{ opacity: 0, scale: 0.95, y: 30 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 30 }}
-              className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl overflow-hidden text-left flex flex-col max-h-[95vh]"
+              className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden text-left flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/20">
-                    <Edit3 className="h-6 w-6" />
+              <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Edit3 className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-slate-900">Official Registration Form Editor</h3>
-                    <p className="text-sm text-slate-500">Student: {selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                    <h3 className="text-lg font-black text-slate-900 leading-none">Official Registration Form Editor</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Student: {selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
                   </div>
                 </div>
-                <button onClick={() => setIsRegistrationModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                  <X className="h-5 w-5 text-slate-500" />
+                <button onClick={() => setIsRegistrationModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                  <X className="h-5 w-5 text-slate-400" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-[#fafafa]">
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
                 {/* Header Information */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                  <Input 
-                    label="Academic Year" 
-                    value={registrationData.academicYear} 
-                    onChange={(e) => setRegistrationData({...registrationData, academicYear: e.target.value})} 
-                  />
-                  <Input 
-                    label="Semester" 
-                    value={registrationData.semester} 
-                    onChange={(e) => setRegistrationData({...registrationData, semester: e.target.value})} 
-                  />
-                  <Input 
-                    label="Program" 
-                    value={registrationData.program} 
-                    onChange={(e) => setRegistrationData({...registrationData, program: e.target.value})} 
-                  />
-                  <Input 
-                    label="Institute" 
-                    value={registrationData.institute} 
-                    onChange={(e) => setRegistrationData({...registrationData, institute: e.target.value})} 
-                  />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Academic Year</label>
+                    <input 
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      value={registrationData.academicYear} 
+                      onChange={(e) => setRegistrationData({...registrationData, academicYear: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Semester</label>
+                    <input 
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      value={registrationData.semester} 
+                      onChange={(e) => setRegistrationData({...registrationData, semester: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Program</label>
+                    <input 
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      value={registrationData.program} 
+                      onChange={(e) => setRegistrationData({...registrationData, program: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Institute</label>
+                    <input 
+                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      value={registrationData.institute} 
+                      onChange={(e) => setRegistrationData({...registrationData, institute: e.target.value})} 
+                    />
+                  </div>
                 </div>
 
                 {/* Courses Enrolled */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                    <h4 className="font-bold text-slate-900">Courses Enrolled</h4>
-                    <Button size="sm" onClick={() => {
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-50 flex items-center justify-between">
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Courses Enrolled</h4>
+                    <Button size="sm" className="h-8 rounded-lg text-[10px] font-black uppercase tracking-widest" onClick={() => {
                       const newCourse = { code: '', description: '', section: validationData.section, lec: 0, lab: 0, compLab: 0, units: 3, rate: 250, fee: 750 };
                       setRegistrationData({
                         ...registrationData,
@@ -1015,94 +1022,149 @@ export default function Records() {
                     }}>Add Course</Button>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-right">
+                    <table className="w-full text-left">
                       <thead>
-                        <tr className="bg-slate-100/50 text-[10px] uppercase font-bold text-slate-500">
-                          <th className="px-4 py-3 text-left">Code</th>
-                          <th className="px-4 py-3 text-left">Description</th>
+                        <tr className="bg-slate-50 text-[8px] uppercase font-black text-slate-400 tracking-wider">
+                          <th className="px-4 py-3">Code</th>
+                          <th className="px-4 py-3">Description</th>
                           <th className="px-4 py-3">Section</th>
-                          <th className="px-4 py-3">Lec</th>
-                          <th className="px-4 py-3">Lab</th>
-                          <th className="px-4 py-3">Comp</th>
-                          <th className="px-4 py-3">Units</th>
-                          <th className="px-4 py-3">Rate</th>
-                          <th className="px-4 py-3">Fee</th>
-                          <th className="px-2 py-3 text-center"></th>
+                          <th className="px-2 py-3 text-center">Lec</th>
+                          <th className="px-2 py-3 text-center">Lab</th>
+                          <th className="px-2 py-3 text-center">Comp</th>
+                          <th className="px-2 py-3 text-center">Units</th>
+                          <th className="px-4 py-3 text-right">Fee</th>
+                          <th className="px-4 py-3"></th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-50">
                         {registrationData.courses.map((course: any, idx: number) => (
-                          <tr key={idx}>
-                            <td className="p-2"><input className="w-full p-2 bg-slate-50 rounded border-none text-xs" value={course.code} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].code = e.target.value;
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input className="w-full p-2 bg-slate-50 rounded border-none text-xs" value={course.description} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].description = e.target.value;
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input className="w-16 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.section} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].section = e.target.value;
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.lec} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].lec = Number(e.target.value);
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.lab} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].lab = Number(e.target.value);
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.compLab} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].compLab = Number(e.target.value);
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input type="number" className="w-12 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.units} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].units = Number(e.target.value);
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2"><input type="number" className="w-16 p-2 bg-slate-50 rounded border-none text-xs text-right" value={course.rate} onChange={(e) => {
-                              const newCourses = [...registrationData.courses];
-                              newCourses[idx].rate = Number(e.target.value);
-                              newCourses[idx].fee = newCourses[idx].units * newCourses[idx].rate;
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} /></td>
-                            <td className="p-2 text-xs font-bold px-4">₱{course.fee.toLocaleString()}</td>
-                            <td className="p-2"><button onClick={() => {
-                              const newCourses = registrationData.courses.filter((_: any, i: number) => i !== idx);
-                              setRegistrationData({...registrationData, courses: newCourses});
-                            }} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button></td>
+                          <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-2 min-w-[100px]">
+                              <input 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold focus:ring-1 focus:ring-blue-500" 
+                                value={course.code} 
+                                placeholder="e.g. ITELECT4"
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].code = e.target.value;
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 min-w-[200px]">
+                              <input 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold focus:ring-1 focus:ring-blue-500" 
+                                value={course.description} 
+                                placeholder="e.g. ITELECTIVE 4"
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].description = e.target.value;
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 w-24">
+                              <input 
+                                className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500" 
+                                value={course.section} 
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].section = e.target.value;
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 w-12 text-center">
+                              <input 
+                                type="number" 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.lec || ''} 
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].lec = Number(e.target.value);
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 w-12 text-center">
+                              <input 
+                                type="number" 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.lab || ''} 
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].lab = Number(e.target.value);
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 w-12 text-center">
+                              <input 
+                                type="number" 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.compLab || ''} 
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].compLab = Number(e.target.value);
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 w-12 text-center">
+                              <input 
+                                type="number" 
+                                className="w-full h-8 bg-slate-50 rounded-lg border-none text-[11px] font-bold text-center focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                value={course.units || ''} 
+                                onChange={(e) => {
+                                  const newCourses = [...registrationData.courses];
+                                  newCourses[idx].units = Number(e.target.value);
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                              />
+                            </td>
+                            <td className="p-2 text-[11px] font-black text-slate-700 text-right pr-4">
+                              ₱{course.fee.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-center">
+                              <button 
+                                onClick={() => {
+                                  const newCourses = registrationData.courses.filter((_: any, i: number) => i !== idx);
+                                  setRegistrationData({...registrationData, courses: newCourses});
+                                }} 
+                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <div className="p-4 bg-slate-50 border-t border-slate-100 text-right">
-                    <p className="text-sm font-bold text-slate-700">Total Units: <span className="text-blue-600">{registrationData.courses.reduce((acc: number, c: any) => acc + c.units, 0)}</span></p>
+                  <div className="p-3 bg-slate-50/50 border-t border-slate-50 text-right px-6">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Total Units: <span className="text-blue-600 ml-2">{registrationData.courses.reduce((acc: number, c: any) => acc + c.units, 0)}</span>
+                    </p>
                   </div>
                 </div>
 
                 {/* Fees and Payment */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-                    <h4 className="font-bold text-slate-900 pb-2 border-b border-slate-100">Assessed Fees</h4>
-                    <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                    <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest pb-3 border-b border-slate-50 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      Assessed Fees
+                    </h4>
+                    <div className="space-y-2">
                       {Object.keys(registrationData.assessedFees).map((key) => {
                         if (key === 'total') return null;
                         return (
-                          <div key={key} className="flex items-center justify-between gap-4">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">{key.replace(/([A-Z])/g, ' $1')}</label>
+                          <div key={key} className="flex items-center justify-between">
+                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">{key.replace(/([A-Z])/g, ' $1')}</label>
                             <input 
                               type="number" 
-                              className="w-24 p-2 bg-slate-50 rounded border-none text-xs text-right font-bold" 
-                              value={registrationData.assessedFees[key]} 
+                              className="w-20 h-7 text-right px-2 bg-slate-50 rounded-md border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                              value={registrationData.assessedFees[key] || ''} 
                               onChange={(e) => {
                                 const newFees = {...registrationData.assessedFees, [key]: Number(e.target.value)};
                                 const total = Object.keys(newFees).reduce((acc, k) => k === 'total' ? acc : acc + newFees[k], 0);
@@ -1113,51 +1175,68 @@ export default function Records() {
                         );
                       })}
                     </div>
-                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                      <p className="font-black text-slate-900 uppercase">Total Amount</p>
-                      <p className="text-xl font-black text-emerald-600">₱{registrationData.assessedFees.total.toLocaleString()}</p>
+                    <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
+                      <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Total Amount</p>
+                      <p className="text-base font-black text-emerald-600">₱{registrationData.assessedFees.total.toLocaleString()}</p>
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-                    <h4 className="font-bold text-slate-900 pb-2 border-b border-slate-100">Payment Details</h4>
-                    <div className="space-y-4">
-                      <Input 
-                        label="Mode of Payment" 
-                        value={registrationData.paymentDetails.mode} 
-                        onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, mode: e.target.value}})} 
-                      />
-                      <Input 
-                        label="Amount Paid" 
-                        value={registrationData.paymentDetails.amount} 
-                        onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, amount: e.target.value}})} 
-                      />
-                      <Input 
-                        label="Date Paid" 
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                    <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest pb-3 border-b border-slate-50 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Payment Details
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Mode</label>
+                        <input 
+                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
+                          value={registrationData.paymentDetails.mode} 
+                          onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, mode: e.target.value}})} 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>
+                        <input 
+                          className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
+                          value={registrationData.paymentDetails.amount} 
+                          onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, amount: e.target.value}})} 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Date Paid</label>
+                      <input 
                         type="date"
+                        className="w-full h-8 px-2 bg-slate-50 rounded-lg border-none text-[10px] font-bold focus:ring-1 focus:ring-blue-500"
                         value={registrationData.paymentDetails.date} 
                         onChange={(e) => setRegistrationData({...registrationData, paymentDetails: {...registrationData.paymentDetails, date: e.target.value}})} 
                       />
                     </div>
                     
-                    <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex items-start gap-4">
-                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                        <CheckCircle2 className="h-5 w-5" />
-                      </div>
+                    <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 flex items-start gap-3">
+                      <CheckCircle2 className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-bold text-blue-900 mb-1">Administrative Note</p>
-                        <p className="text-xs text-blue-700 leading-relaxed">Saving this form will finalize the student's enrollment status. This data will be visible on the student's dashboard.</p>
+                        <p className="text-[9px] font-black text-blue-900 uppercase tracking-widest leading-none mb-1">Administrative Note</p>
+                        <p className="text-[9px] text-blue-700 leading-normal">Saving this form will finalize the student's enrollment status. This data will be visible on the student's dashboard.</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsRegistrationModalOpen(false)}>
+              <div className="p-4 bg-white border-t border-slate-100 flex justify-end gap-3 shrink-0">
+                <Button 
+                  variant="outline" 
+                  className="rounded-xl h-10 px-6 text-[10px] font-black uppercase tracking-widest border-2 border-slate-100"
+                  onClick={() => setIsRegistrationModalOpen(false)}
+                >
                   Cancel
                 </Button>
-                <Button className="bg-[#064e3b] hover:bg-[#053d2e] px-8" onClick={handleRegistrationSubmit}>
+                <Button 
+                  className="bg-[#052e16] hover:bg-[#031f0e] rounded-xl h-10 px-8 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-950/20" 
+                  onClick={handleRegistrationSubmit}
+                >
                   Save & Finalize Enrollment
                 </Button>
               </div>

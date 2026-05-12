@@ -7,6 +7,7 @@ import {
   TrendingUp, 
   ArrowUpRight, 
   Calendar,
+  MapPin,
   Bell,
   Plus,
   BookOpen,
@@ -63,6 +64,8 @@ export default function Dashboard({ user }: DashboardProps) {
       if (snap.exists()) {
         setSettings(snap.data() as SystemSettings);
       }
+    }, (error) => {
+      console.error("Firestore Error fetching settings in Dashboard:", error);
     });
 
     let dataUnsub = () => {};
@@ -84,6 +87,8 @@ export default function Dashboard({ user }: DashboardProps) {
           { label: 'Pending Apps', value: pending.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: '--' },
         ]);
         setRecentEnrollments(allDocs.slice(0, 5));
+      }, (error) => {
+        console.error("Firestore Error in Admin Dashboard data:", error);
       });
     } else {
       // For students, the doc ID for enrollment is their username (userId)
@@ -93,6 +98,8 @@ export default function Dashboard({ user }: DashboardProps) {
         } else {
           setEnrollmentRecord(null);
         }
+      }, (error) => {
+        console.error("Firestore Error in Student Dashboard data:", error);
       });
     }
 
@@ -155,6 +162,30 @@ export default function Dashboard({ user }: DashboardProps) {
       return time;
     }
   };
+
+  const isExamDone = useMemo(() => {
+    if (!enrollmentRecord?.examDate) return false;
+    const examDate = new Date(enrollmentRecord.examDate);
+    const now = new Date();
+    
+    // Check if date is in the past
+    const examDay = new Date(examDate);
+    examDay.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    
+    if (today.getTime() > examDay.getTime()) return true;
+    
+    // If today, check end time if available
+    if (today.getTime() === examDay.getTime() && enrollmentRecord.examEndTime) {
+      const [hours, minutes] = enrollmentRecord.examEndTime.split(':');
+      const endTime = new Date(examDay);
+      endTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      if (now.getTime() > endTime.getTime()) return true;
+    }
+    
+    return false;
+  }, [enrollmentRecord]);
 
   const studentStatus = enrollmentRecord?.status || 'Not Enrolled';
 
@@ -454,16 +485,50 @@ export default function Dashboard({ user }: DashboardProps) {
                         (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-300"
                       )}>Assessment</span>
                       <Clock className={cn("h-6 w-6 mb-4", (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-200")} />
-                      {enrollmentRecord?.examDate ? (
-                        <div className="text-center p-3 rounded-xl bg-amber-50 border border-amber-100 mt-2 shadow-sm">
-                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] mb-1">Entrance Exam Schedule</p>
-                          <p className="text-xs font-bold text-amber-900">{new Date(enrollmentRecord.examDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                          <p className="text-[10px] font-bold text-amber-900/70">
-                            {formatTime(enrollmentRecord.examStartTime)} - {formatTime(enrollmentRecord.examEndTime)} @ {enrollmentRecord.examVenue}
+                      {enrollmentRecord?.examDate && enrollmentRecord.yearLevel === '1st Year' ? (
+                        <div className={cn(
+                          "text-center p-4 pt-8 rounded-2xl border mt-2 shadow-sm relative overflow-hidden group min-w-[240px]",
+                          isExamDone ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
+                        )}>
+                          <div className="absolute top-0 right-0 p-1">
+                            <span className={cn(
+                              "text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest shadow-sm",
+                              isExamDone ? "bg-emerald-200 text-emerald-700" : "bg-amber-200 text-amber-700"
+                            )}>
+                              {isExamDone ? 'Schedule Done' : 'Active Schedule'}
+                            </span>
+                          </div>
+                          <p className={cn(
+                            "text-[10px] font-black uppercase tracking-[0.2em] mb-2 flex items-center justify-center gap-2",
+                            isExamDone ? "text-emerald-600" : "text-amber-600"
+                          )}>
+                            <Calendar className={cn("h-3 w-3", isExamDone ? "text-emerald-600" : "text-amber-600")} />
+                            {isExamDone ? 'Exam Date was Done' : 'Entrance Exam Schedule'}
                           </p>
+                          <p className={cn(
+                            "text-lg font-black",
+                            isExamDone ? "text-emerald-900" : "text-amber-900"
+                          )}>
+                            {new Date(enrollmentRecord.examDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                          </p>
+                          {!isExamDone && (
+                            <>
+                              <p className="text-xs font-bold text-amber-800/80 mt-1">
+                                {formatTime(enrollmentRecord.examStartTime)} - {formatTime(enrollmentRecord.examEndTime)}
+                              </p>
+                              <p className="text-[10px] font-bold text-amber-700 mt-2 bg-white/50 py-1 rounded-lg border border-amber-100 flex items-center justify-center gap-1.5">
+                                <MapPin className="h-3 w-3" />
+                                Venue: {enrollmentRecord.examVenue || 'To be announced'}
+                              </p>
+                            </>
+                          )}
                         </div>
-                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled') && enrollmentRecord?.updatedAt ? (
-                        <div className="text-center">
+                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') && enrollmentRecord?.updatedAt ? (
+                        <div className="text-center py-2">
+                           <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
+                          </div>
                           <p className="text-xs font-bold text-[#052e16]">{new Date(enrollmentRecord.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                           <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{new Date(enrollmentRecord.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
@@ -508,7 +573,7 @@ export default function Dashboard({ user }: DashboardProps) {
                     ) : (
                       enrollmentStatus === 'Upcoming' ? 'Enrollment Not Yet Open' :
                       enrollmentStatus === 'Ended' ? 'Enrollment Closed' :
-                      'Proceed to Enrollment'
+                      'View / Update Enrollment'
                     )}
                   </Button>
                   <Button variant="outline" className="flex-1 py-6 font-bold" onClick={() => navigate('/steps')}>
@@ -523,7 +588,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 <div className="flex items-center gap-4 mb-6">
                   <div className={cn(
                     "h-12 w-12 rounded-2xl flex items-center justify-center",
-                    studentStatus === 'Enrolled' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                    (studentStatus === 'Enrolled' || studentStatus === 'Approved') ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                   )}>
                     <GraduationCap className="h-6 w-6" />
                   </div>
@@ -537,13 +602,14 @@ export default function Dashboard({ user }: DashboardProps) {
                     <span className="text-sm font-medium text-slate-600">Current Status:</span>
                     <span className={cn(
                       "text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md",
-                      studentStatus === 'Enrolled' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                      studentStatus === 'Enrolled' ? "bg-emerald-100 text-emerald-700" : 
+                      studentStatus === 'Approved' ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
                     )}>
                       {studentStatus}
                     </span>
                   </div>
                   
-                  {studentStatus === 'Enrolled' ? (
+                  {(studentStatus === 'Enrolled' || studentStatus === 'Approved') ? (
                     <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 space-y-2">
                        <div className="flex justify-between items-center text-xs">
                         <span className="text-slate-500 font-medium">Assigned Section:</span>

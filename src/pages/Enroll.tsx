@@ -18,7 +18,8 @@ import {
 import { Card, CardContent, CardTitle } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
-import { ENROLLMENT_TYPES, COURSES, YEAR_LEVELS } from '@/src/constants';
+import { SearchableSelect } from '@/src/components/ui/SearchableSelect';
+import { ENROLLMENT_TYPES, COURSES, YEAR_LEVELS, PHILIPPINES_ADDRESS_DATA } from '@/src/constants';
 import { StudentInfo, EnrollmentType, Course, YearLevel, User as UserType, EnrollmentRecord, SystemSettings } from '@/src/types';
 import { cn } from '@/src/utils/cn';
 import confetti from 'canvas-confetti';
@@ -40,6 +41,12 @@ const INITIAL_STUDENT_INFO: StudentInfo = {
   age: '',
   gender: 'Male',
   address: '',
+  addressDetails: {
+    province: '',
+    city: '',
+    barangay: '',
+    street: ''
+  },
   contactNumber: '',
   email: '',
   birthday: '',
@@ -71,6 +78,11 @@ export default function Enroll() {
     if (savedUser) {
       const parsedUser = JSON.parse(savedUser);
       setUser(parsedUser);
+      
+      // Auto-populate email from auth
+      if (parsedUser.email && !studentInfo.email) {
+        setStudentInfo(prev => ({ ...prev, email: parsedUser.email }));
+      }
       
       const fetchData = async () => {
         try {
@@ -114,6 +126,22 @@ export default function Enroll() {
       fetchData();
     }
   }, []);
+
+  // Auto-calculate age from birthday
+  useEffect(() => {
+    if (studentInfo.birthday) {
+      const birthDate = new Date(studentInfo.birthday);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age > 0) {
+        setStudentInfo(prev => ({ ...prev, age: age.toString() }));
+      }
+    }
+  }, [studentInfo.birthday]);
 
   const enrollmentPeriodStatus = React.useMemo(() => {
     if (!settings?.enrollmentStartDate || !settings?.enrollmentEndDate) return 'Not Set';
@@ -160,20 +188,40 @@ export default function Enroll() {
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setStudentInfo({
-          ...studentInfo,
+        setStudentInfo(prev => ({
+          ...prev,
           documents: {
-            ...studentInfo.documents,
+            ...prev.documents,
             [field]: reader.result as string
           }
-        });
+        }));
         toast.success(`${field.replace(/([A-Z])/g, ' $1').trim()} updated!`);
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const isStepValid = (step: number) => {
+    if (step === 1) {
+      const si = studentInfo;
+      const hasBasicInfo = !!(si.firstName && si.lastName && si.gender && si.birthday && si.contactNumber && si.email);
+      const hasAddress = !!(si.addressDetails?.province && si.addressDetails?.city && si.addressDetails?.barangay && si.addressDetails?.street);
+      const hasDocuments = si.yearLevel === '1st Year' 
+        ? !!(si.documents?.summaryOfGrades && si.documents?.goodMoral && si.documents?.twoByTwoPhoto && si.documents?.birthCertificate)
+        : true;
+      
+      return hasBasicInfo && hasAddress && hasDocuments;
+    }
+    if (step === 2) return !!enrollmentType;
+    if (step === 3) return !!selectedCourse;
+    return true;
+  };
+
   const handleNext = () => {
+    if (!isStepValid(currentStep)) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
     if (currentStep < 3) setCurrentStep(currentStep + 1);
   };
 
@@ -187,24 +235,28 @@ export default function Enroll() {
     const now = new Date().toISOString();
     
     // Construct the enrollment record
-    const newRecord: EnrollmentRecord = {
-      id: user?.username || Math.random().toString(36).substring(7),
-      userId: user?.username, // Use username as userId since we don't have FirebaseAuth UIDs yet
+    const recordUpdates: Partial<EnrollmentRecord> = {
+      userId: user?.username,
       studentInfo: {
         ...studentInfo,
-        studentId: studentInfo.studentId || '' // Keep empty if not admin assigned yet
+        studentId: studentInfo.studentId || '' 
       },
       type: enrollmentType,
       course: selectedCourse,
       yearLevel: studentInfo.yearLevel,
-      status: 'Validating', // Fixed requirement: starts as validating
-      enrolledAt: now
+      status: 'Validating',
+      updatedAt: now
     };
 
+    // Only set enrolledAt if it's a new enrollment
+    if (enrollmentStatus === 'Not Started') {
+      recordUpdates.enrolledAt = now;
+    }
+
     try {
-      // Save to Firestore
-      const docRef = doc(db, 'enrollments', newRecord.id);
-      await setDoc(docRef, newRecord);
+      // Save to Firestore with merge to preserve fields like examDate
+      const docRef = doc(db, 'enrollments', user?.username || '');
+      await setDoc(docRef, recordUpdates, { merge: true });
 
       setIsSubmitting(false);
       setIsSuccess(true);
@@ -218,7 +270,7 @@ export default function Enroll() {
       toast.success(enrollmentStatus === 'Validating' ? 'Information updated successfully!' : 'Enrollment submitted successfully!');
     } catch (error) {
       setIsSubmitting(false);
-      handleFirestoreError(error, OperationType.WRITE, `enrollments/${newRecord.id}`);
+      handleFirestoreError(error, OperationType.WRITE, `enrollments/${user?.username}`);
     }
   };
 
@@ -588,10 +640,11 @@ export default function Enroll() {
 
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <Input 
-                      label="Age" 
-                      placeholder="20" 
+                      label="Age (Auto-calculated)" 
+                      placeholder="Age" 
                       value={studentInfo.age}
-                      onChange={(e) => setStudentInfo({ ...studentInfo, age: e.target.value })}
+                      readOnly
+                      className="bg-slate-50 font-bold"
                       disabled={isReadOnly}
                     />
                     <div className="space-y-1.5 text-left">
@@ -627,18 +680,83 @@ export default function Enroll() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
+                    <div className="space-y-6">
+                      <label className="text-sm font-bold text-slate-700 ml-1 block text-left">Location / Residential Address</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <SearchableSelect
+                          label="Province"
+                          placeholder="Search Province..."
+                          options={PHILIPPINES_ADDRESS_DATA.provinces}
+                          value={studentInfo.addressDetails?.province || ''}
+                          onChange={(val) => {
+                            const details = { ...studentInfo.addressDetails, province: val, city: '', barangay: '' } as any;
+                            const fullAddress = [details.street, details.barangay, details.city, details.province].filter(Boolean).join(', ');
+                            setStudentInfo({ ...studentInfo, addressDetails: details, address: fullAddress });
+                          }}
+                          disabled={isReadOnly}
+                          icon={<MapPin className="h-4 w-4" />}
+                        />
+
+                        <SearchableSelect
+                          label="City / Municipality"
+                          placeholder={studentInfo.addressDetails?.province ? "Search City..." : "Select Province first"}
+                          options={studentInfo.addressDetails?.province ? (PHILIPPINES_ADDRESS_DATA.municipalities[studentInfo.addressDetails.province as keyof typeof PHILIPPINES_ADDRESS_DATA.municipalities] || []) : []}
+                          value={studentInfo.addressDetails?.city || ''}
+                          onChange={(val) => {
+                            const details = { ...studentInfo.addressDetails, city: val, barangay: '' } as any;
+                            const fullAddress = [details.street, details.barangay, details.city, details.province].filter(Boolean).join(', ');
+                            setStudentInfo({ ...studentInfo, addressDetails: details, address: fullAddress });
+                          }}
+                          disabled={isReadOnly || !studentInfo.addressDetails?.province}
+                          icon={<MapPin className="h-4 w-4" />}
+                        />
+
+                        <SearchableSelect
+                          label="Barangay"
+                          placeholder={studentInfo.addressDetails?.city ? "Search Barangay..." : "Select City first"}
+                          options={studentInfo.addressDetails?.city ? (PHILIPPINES_ADDRESS_DATA.barangays[studentInfo.addressDetails.city as keyof typeof PHILIPPINES_ADDRESS_DATA.barangays] || []) : []}
+                          value={studentInfo.addressDetails?.barangay || ''}
+                          onChange={(val) => {
+                            const details = { ...studentInfo.addressDetails, barangay: val } as any;
+                            const fullAddress = [details.street, details.barangay, details.city, details.province].filter(Boolean).join(', ');
+                            setStudentInfo({ ...studentInfo, addressDetails: details, address: fullAddress });
+                          }}
+                          disabled={isReadOnly || !studentInfo.addressDetails?.city}
+                          icon={<MapPin className="h-4 w-4" />}
+                        />
+
+                        <div className="relative">
+                          <MapPin className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
+                          <Input 
+                            label="House No / Street" 
+                            className="pl-10" 
+                            placeholder="Unit/Street" 
+                            value={studentInfo.addressDetails?.street || ''}
+                            onChange={(e) => {
+                              const details = { ...studentInfo.addressDetails, street: e.target.value } as any;
+                              const fullAddress = [details.street, details.barangay, details.city, details.province].filter(Boolean).join(', ');
+                              setStudentInfo({ ...studentInfo, addressDetails: details, address: fullAddress });
+                            }}
+                            disabled={isReadOnly}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="relative">
                       <MapPin className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input 
-                        label="Address" 
-                        className="pl-10" 
-                        placeholder="Complete residential address" 
-                        value={studentInfo.address}
-                        onChange={(e) => setStudentInfo({ ...studentInfo, address: e.target.value })}
-                        disabled={isReadOnly}
+                        label="Full Address (Auto-generated)" 
+                        className="pl-10 bg-slate-50 font-medium" 
+                        value={studentInfo.address || ''}
+                        readOnly
+                        disabled
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="relative">
                       <IdCard className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input 
@@ -650,9 +768,6 @@ export default function Enroll() {
                         disabled={!isAdmin || isReadOnly}
                       />
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="relative">
                       <Phone className="absolute left-3.5 top-[42px] -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input 
@@ -852,34 +967,52 @@ export default function Enroll() {
               {/* Step 3: Course & Confirmation */}
               {currentStep === 3 && (
                 <div className="space-y-10">
-                  <div>
+                  <div className="text-left">
                     <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                        Course Selection
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {COURSES.map((course) => (
-                        <button
-                          key={course.id}
-                          disabled={isReadOnly}
-                          onClick={() => setSelectedCourse(course.id)}
-                          className={cn(
-                            "p-4 rounded-xl border-2 text-left transition-all",
-                            isReadOnly && "cursor-not-allowed opacity-80",
-                            selectedCourse === course.id 
-                              ? "border-blue-600 bg-blue-50/30 ring-4 ring-blue-500/10" 
-                              : "border-slate-100" + (isReadOnly ? "" : " hover:border-slate-200")
-                          )}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={cn("text-xs font-black px-2 py-1 rounded bg-slate-100", selectedCourse === course.id && "bg-blue-600 text-white")}>
-                              {course.id}
-                            </span>
-                            {selectedCourse === course.id && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+                    
+                    <div className="space-y-10">
+                      {['ICS', 'IBE', 'ITE'].map((inst) => {
+                        const coursesInInstitute = COURSES.filter(c => c.institute === inst);
+                        if (coursesInInstitute.length === 0) return null;
+                        
+                        return (
+                          <div key={inst} className="flex flex-col md:flex-row gap-6">
+                            <div className="md:w-32 shrink-0">
+                              <h4 className="text-4xl font-black text-slate-200 tracking-tighter leading-none mt-1">{inst}</h4>
+                            </div>
+                            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                              {coursesInInstitute.map((course) => (
+                                <button
+                                  key={course.id}
+                                  disabled={isReadOnly}
+                                  onClick={() => setSelectedCourse(course.id)}
+                                  className={cn(
+                                    "p-4 rounded-xl border-2 text-left transition-all relative overflow-hidden group",
+                                    isReadOnly && "cursor-not-allowed opacity-80",
+                                    selectedCourse === course.id 
+                                      ? "border-blue-600 bg-blue-50/30 ring-4 ring-blue-500/10 shadow-lg shadow-blue-500/5" 
+                                      : "border-slate-100 bg-white" + (isReadOnly ? "" : " hover:border-slate-200 hover:shadow-md")
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className={cn(
+                                      "text-[10px] font-black px-2 py-0.5 rounded tracking-widest transition-colors", 
+                                      selectedCourse === course.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                                    )}>
+                                      {course.id}
+                                    </span>
+                                    {selectedCourse === course.id && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+                                  </div>
+                                  <p className="text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{course.title}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium mt-1">{course.slots} slots remaining</p>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <p className="text-sm font-bold text-slate-800 line-clamp-1">{course.title}</p>
-                          <p className="text-[10px] text-slate-500 font-medium mt-1">{course.slots} slots remaining</p>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -944,7 +1077,11 @@ export default function Enroll() {
                 {currentStep < 3 ? (
                   <Button
                     onClick={handleNext}
-                    className="gap-2 min-w-[140px]"
+                    disabled={!isStepValid(currentStep)}
+                    className={cn(
+                      "gap-2 min-w-[140px]",
+                      !isStepValid(currentStep) && "opacity-50 grayscale"
+                    )}
                   >
                     Continue
                     <ChevronRight className="h-4 w-4" />
@@ -953,10 +1090,10 @@ export default function Enroll() {
                   <Button
                     onClick={handleSubmit}
                     isLoading={isSubmitting}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || !isStepValid(3)}
                     className={cn(
                       "gap-2 min-w-[160px] border-none",
-                      isReadOnly 
+                      (isReadOnly || !isStepValid(3)) 
                         ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
                         : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 text-white"
                     )}

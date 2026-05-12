@@ -173,7 +173,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
         )}
       </AnimatePresence>
 
-      <div className="lg:pl-[240px] flex flex-col min-h-screen bg-glass-gradient print:pl-0 print:bg-white print:m-0 relative z-0">
+      <div className="lg:pl-[240px] flex flex-col min-h-screen bg-glass-gradient print:pl-0 print:bg-white print:m-0 relative">
         <div className="no-print">
           <Navbar 
             user={user} 

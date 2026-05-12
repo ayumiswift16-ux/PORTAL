@@ -53,6 +53,8 @@ export default function App() {
             // Create the doc if it doesn't exist
             setDoc(userDocRef, initialUser);
           }
+        }, (error) => {
+          console.error("Firestore Error in App.tsx user listener:", error);
         });
       } else {
         if (unsubscribeUserDoc) unsubscribeUserDoc();

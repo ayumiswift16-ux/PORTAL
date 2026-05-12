@@ -18,12 +18,8 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'davevenzon789@gmail.com' ||
-        request.auth.token.email == 'admin1@school.portal' ||
-        request.auth.token.email == 'admin2@school.portal' ||
-        request.auth.token.email == 'admin3@school.portal' ||
-        request.auth.token.email == 'admin4@school.portal' ||
-        request.auth.token.email == 'admin5@school.portal'
+        request.auth.token.get('email', '') == 'davevenzon789@gmail.com' ||
+        request.auth.token.get('email', '').matches('^admin[1-5]@school\\.portal$')
       );
     }
 
@@ -55,20 +51,22 @@ service cloud.firestore {
     // 1. Enrollments
     match /enrollments/{enrollmentId} {
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow get: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && (enrollmentId == request.auth.uid || (resource != null && existing().userId == request.auth.uid)));
       
-      allow create: if (isAdmin() || (isEmailVerified() && incoming().userId == request.auth.uid)) && 
+      allow create: if (isAdmin() || (isSignedIn() && incoming().userId == request.auth.uid)) && 
                       isValidEnrollment(incoming()) && 
                       incoming().status == 'Validating';
 
       allow update: if (isAdmin() && isValidEnrollment(incoming())) || (
-        isEmailVerified() && 
+        isSignedIn() && 
         existing().userId == request.auth.uid && 
         isValidEnrollment(incoming()) &&
         existing().status != 'Enrolled' &&
         incoming().userId == existing().userId &&
         incoming().status == existing().status &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['studentInfo', 'type', 'course', 'yearLevel', 'enrolledAt'])
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'studentInfo', 'type', 'course', 'yearLevel', 'enrolledAt', 'updatedAt', 'id'
+        ])
       );
 
       allow delete: if isAdmin();
