@@ -33,6 +33,21 @@ export default function Login({ onLogin }: LoginProps) {
   });
   const navigate = useNavigate();
 
+  const handleFirestoreError = (error: any, operationType: string, path: string) => {
+    const errInfo = {
+      error: error.message || String(error),
+      operationType,
+      path,
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+      }
+    };
+    console.error(`Firestore Error [${operationType}] on ${path}:`, JSON.stringify(errInfo));
+    return new Error(JSON.stringify(errInfo));
+  };
+
   const handleSendVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profData.email) {
@@ -42,6 +57,38 @@ export default function Login({ onLogin }: LoginProps) {
     
     setLoading(true);
     try {
+      const { query, where, collection, getDocs, limit } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+
+      // Check for pending requests with this email
+      let pendingSnapshot;
+      try {
+        const q = query(collection(db, 'teacher_requests'), where('email', '==', profData.email), where('status', '==', 'pending'), limit(1));
+        pendingSnapshot = await getDocs(q);
+      } catch (err: any) {
+        throw handleFirestoreError(err, 'list', 'teacher_requests');
+      }
+      
+      if (!pendingSnapshot.empty) {
+        toast.error("An account request for this email is already pending approval.");
+        return;
+      }
+
+      // Check if email already has an approved account
+      let approvedSnapshot;
+      try {
+        const qApproved = query(collection(db, 'teacher_requests'), where('email', '==', profData.email), where('status', '==', 'approved'), limit(1));
+        approvedSnapshot = await getDocs(qApproved);
+      } catch (err: any) {
+        throw handleFirestoreError(err, 'list', 'teacher_requests');
+      }
+      
+      if (!approvedSnapshot.empty) {
+        toast.error("This email already has an approved account. Please log in.");
+        setShowProfessorForm(false);
+        return;
+      }
+
       // Generate 6-digit code
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       setVerificationCode(code);
@@ -112,13 +159,17 @@ export default function Login({ onLogin }: LoginProps) {
         }
       }
 
-      await addDoc(collection(db, 'teacher_requests'), {
-        ...profData,
-        username: sanitizedUsername, // Use sanitized username
-        uid: uid || null,
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
+      try {
+        await addDoc(collection(db, 'teacher_requests'), {
+          ...profData,
+          username: sanitizedUsername, // Use sanitized username
+          uid: uid || null,
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        });
+      } catch (err: any) {
+        throw handleFirestoreError(err, 'create', 'teacher_requests');
+      }
       
       toast.success('Request submitted! Please wait for admin approval.');
       setShowProfessorForm(false);
@@ -162,58 +213,43 @@ export default function Login({ onLogin }: LoginProps) {
 
     try {
       const sanitizedInput = username.toLowerCase().replace(/\s+/g, '');
-      // Map Admin1-Admin5 to their secure email accounts
-      if (sanitizedInput.match(/^admin[1-5]$/)) {
-        const email = `${sanitizedInput}@school.portal`;
+      const email = `${sanitizedInput}@school.portal`;
+      
+      try {
         await signInWithEmailAndPassword(auth, email, password);
-        toast.success(`Welcome back, ${username}!`);
-        navigate('/dashboard');
-      } else {
-        const email = `${sanitizedInput}@school.portal`;
+        
+        // If successful, now we can fetch the user doc because we are authenticated
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        
+        // Try to get user doc via username as ID
+        let userDoc;
         try {
-          // Try to sign in directly first - this avoids the unauthorized Firestore query
-          await signInWithEmailAndPassword(auth, email, password);
-          
-          // If successful, now we can fetch the user doc because we are authenticated
-          const { doc, getDoc } = await import('firebase/firestore');
-          const { db } = await import('../lib/firebase');
-          
-          // First try by username as ID
-          let userDoc = await getDoc(doc(db, 'users', sanitizedInput));
-          
-          // If not found, try by Auth UID
-          if (!userDoc.exists()) {
-             userDoc = await getDoc(doc(db, 'users', auth.currentUser?.uid || ''));
-          }
-
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            toast.success(`Welcome back, Professor ${userData.fullName || userData.name}!`);
-            navigate('/dashboard');
-          } else {
-            // Document missing but Auth exists? This shouldn't happen but log it
-            console.warn("User authenticated but profile missing in Firestore.");
-            toast.success("Welcome back!");
-            navigate('/dashboard');
-          }
-        } catch (authError: any) {
-          console.error("Auth error:", authError);
-          if (authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential' || authError.code === 'auth/invalid-email') {
-             toast.error("Invalid credentials or account not found.");
-          } else {
-             toast.error("Login failed. Please check your credentials.");
-          }
+          userDoc = await getDoc(doc(db, 'users', sanitizedInput));
+        } catch (err: any) {
+          throw handleFirestoreError(err, 'get', `users/${sanitizedInput}`);
+        }
+        
+        // If not found, it might be an admin without a 'users' doc (only 'admins' doc)
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          toast.success(`Welcome back, Professor ${userData.fullName || userData.name}!`);
+        } else {
+          toast.success(`Welcome back, ${username}!`);
+        }
+        
+        navigate('/dashboard');
+      } catch (authError: any) {
+        console.error("Auth error:", authError);
+        if (authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential' || authError.code === 'auth/invalid-email') {
+           toast.error("Invalid credentials or account not found.");
+        } else {
+           toast.error("Login failed. Please check your credentials.");
         }
       }
     } catch (error: any) {
       console.error("Login error:", error);
-      if (error.code === 'auth/operation-not-allowed') {
-        toast.error('Admin login is not yet configured. Please enable Email/Password in Firebase Console.');
-      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        toast.error('Invalid credentials. Please check your username and password.');
-      } else {
-        toast.error('Login failed. Please try again.');
-      }
+      toast.error('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }

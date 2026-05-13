@@ -101,6 +101,22 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "TeacherRequest": {
+      "title": "Teacher Request",
+      "description": "A request for a professor account",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "institute": { "type": "string" },
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "uid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "email", "username", "status"]
     }
   },
   "firestore": {
@@ -127,6 +143,10 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications. Creatable by any user if the recipient is an admin (reporting)."
+    },
+    "/teacher_requests/{requestId}": {
+      "schema": "TeacherRequest",
+      "description": "Collection of professor account requests"
     }
   }
 }

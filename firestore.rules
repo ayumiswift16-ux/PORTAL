@@ -112,7 +112,8 @@ service cloud.firestore {
     // Teacher Requests
     match /teacher_requests/{requestId} {
       allow create: if true; 
-      allow read, write: if isAdmin();
+      allow read: if true; 
+      allow update, delete: if isAdmin();
     }
 
     // Catch-all for sub-collections or other resources
