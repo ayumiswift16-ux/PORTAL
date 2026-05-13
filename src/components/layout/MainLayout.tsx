@@ -46,6 +46,8 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
       return;
     }
 
+    if (!user?.username) return;
+
     const q = query(
       collection(db, 'enrollments'),
       where('userId', '==', user.username),

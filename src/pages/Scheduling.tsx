@@ -83,6 +83,19 @@ export default function Scheduling() {
     return () => clearInterval(timer);
   }, []);
 
+  const formatTime = (time?: string) => {
+    if (!time) return '';
+    try {
+      const [hours, minutes] = time.split(':');
+      const h = parseInt(hours);
+      const ampm = h >= 12 ? 'pm' : 'am';
+      const formattedHours = h % 12 || 12;
+      return `${formattedHours}:${minutes}${ampm}`;
+    } catch (e) {
+      return time;
+    }
+  };
+
   const addSection = async () => {
     if (!newSectionName.trim()) return;
     const name = newSectionName.trim().toUpperCase();
@@ -418,7 +431,7 @@ export default function Scheduling() {
                             <h4 className="text-sm font-bold text-slate-900 leading-none">{item.subject}</h4>
                             <div className="flex items-center gap-1 mt-1 text-[10px] font-medium text-slate-500">
                               <Clock className="h-3 w-3" />
-                              {item.startTime} - {item.endTime}
+                              {formatTime(item.startTime)} - {formatTime(item.endTime)}
                             </div>
                           </div>
                         </div>

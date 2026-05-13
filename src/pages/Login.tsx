@@ -61,32 +61,26 @@ export default function Login({ onLogin }: LoginProps) {
       const { db } = await import('../lib/firebase');
 
       // Check for pending requests with this email
-      let pendingSnapshot;
+      const emailId = profData.email;
+      let existingReq;
       try {
-        const q = query(collection(db, 'teacher_requests'), where('email', '==', profData.email), where('status', '==', 'pending'), limit(1));
-        pendingSnapshot = await getDocs(q);
+        const { getDoc, doc } = await import('firebase/firestore');
+        existingReq = await getDoc(doc(db, 'teacher_requests', emailId));
       } catch (err: any) {
-        throw handleFirestoreError(err, 'list', 'teacher_requests');
+        // If we can't read it, maybe rules are tight, but we try
+        console.warn("Could not check existing request:", err);
       }
       
-      if (!pendingSnapshot.empty) {
-        toast.error("An account request for this email is already pending approval.");
-        return;
-      }
-
-      // Check if email already has an approved account
-      let approvedSnapshot;
-      try {
-        const qApproved = query(collection(db, 'teacher_requests'), where('email', '==', profData.email), where('status', '==', 'approved'), limit(1));
-        approvedSnapshot = await getDocs(qApproved);
-      } catch (err: any) {
-        throw handleFirestoreError(err, 'list', 'teacher_requests');
-      }
-      
-      if (!approvedSnapshot.empty) {
-        toast.error("This email already has an approved account. Please log in.");
-        setShowProfessorForm(false);
-        return;
+      if (existingReq?.exists()) {
+        const data = existingReq.data();
+        if (data.status === 'pending') {
+          toast.error("An account request for this email is already pending approval.");
+          return;
+        } else if (data.status === 'approved') {
+          toast.error("This email already has an approved account. Please log in.");
+          setShowProfessorForm(false);
+          return;
+        }
       }
 
       // Generate 6-digit code
@@ -159,8 +153,10 @@ export default function Login({ onLogin }: LoginProps) {
         }
       }
 
+      const emailId = profData.email;
       try {
-        await addDoc(collection(db, 'teacher_requests'), {
+        const { doc, setDoc } = await import('firebase/firestore');
+        await setDoc(doc(db, 'teacher_requests', emailId), {
           ...profData,
           username: sanitizedUsername, // Use sanitized username
           uid: uid || null,
@@ -192,7 +188,31 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      if (user.email) {
+        const { getDoc, doc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+
+        // Check if this Gmail is associated with a professor request (any status)
+        const emailId = user.email;
+        const snap = await getDoc(doc(db, 'teacher_requests', emailId));
+
+        if (snap.exists()) {
+          const reqData = snap.data();
+          if (reqData.status === 'pending') {
+            await auth.signOut();
+            toast.error("Your professor application is still pending. Please wait for approval.");
+            return;
+          } else if (reqData.status === 'approved') {
+            await auth.signOut();
+            toast.error(`Please use your Portal Account (${reqData.username}@school.portal) to login.`);
+            return;
+          }
+        }
+      }
+
       toast.success('Logged in successfully!');
       navigate('/dashboard');
     } catch (error: any) {

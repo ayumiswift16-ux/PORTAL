@@ -45,58 +45,60 @@ export default function App() {
 
         // Sync with users collection for extra data like role, profile picture, and assigned section
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        unsubscribeUserDoc = onSnapshot(userDocRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const extraData = docSnap.data();
+        unsubscribeUserDoc = onSnapshot(userDocRef, async (docSnap) => {
+          let userData = docSnap.exists() ? docSnap.data() : null;
+          
+          // Check if this user (Gmail) is an approved professor, even if they have a student doc
+          if (firebaseUser.email) {
+            const { getDoc } = await import('firebase/firestore');
+            const emailId = firebaseUser.email;
+            const adminDoc = await getDoc(doc(db, 'admins', emailId));
+            
+            if (adminDoc.exists()) {
+              const adminData = adminDoc.data();
+              const isAlreadyProfessor = userData?.role === 'professor';
+              
+              if (!isAlreadyProfessor) {
+                 // Upgrade or create professor profile
+                 const profProfile: any = {
+                    ...(userData || {}),
+                    name: adminData.name || firebaseUser.displayName || firebaseUser.email.split('@')[0],
+                    email: userData?.email || `${adminData.username || firebaseUser.email.split('@')[0]}@school.portal`,
+                    gmail: firebaseUser.email,
+                    role: 'professor',
+                    assignedSections: adminData.assignedSections || [],
+                    assignedSection: adminData.assignedSection || adminData.assignedSections?.[0] || null,
+                    updatedAt: new Date().toISOString()
+                 };
+                 await setDoc(userDocRef, profProfile, { merge: true });
+                 // The snapshot will trigger again with updated data
+                 return;
+              }
+            }
+          }
+
+          if (userData) {
             setUser(prev => {
-              const updated = prev ? { ...prev, ...extraData } : { ...initialUser, ...extraData };
+              const updated = prev ? { ...prev, ...userData } : { ...initialUser, ...userData };
               localStorage.setItem('cdm_user', JSON.stringify(updated));
               return updated;
             });
           } else {
-            // Check if this is a professor logging in for the first time
-            const checkProfessorMigration = async () => {
-              // 1. Check by portal username if applicable
-              const portalMatch = firebaseUser.email?.match(/^(.+)@school\.portal$/);
-              if (portalMatch) {
-                const username = portalMatch[1];
-                const { getDoc } = await import('firebase/firestore');
-                const usernameDoc = await getDoc(doc(db, 'users', username));
-                if (usernameDoc.exists()) {
-                  const data = usernameDoc.data();
-                  await setDoc(userDocRef, data);
-                  return true;
-                }
-              }
-              
-              // 2. Check the admins collection to see if their Gmail is approved
-              if (firebaseUser.email) {
-                const { getDoc } = await import('firebase/firestore');
-                const emailId = firebaseUser.email.replace(/\./g, '_');
-                const adminDoc = await getDoc(doc(db, 'admins', emailId));
-                if (adminDoc.exists()) {
-                  // This is an approved professor using Gmail
-                  const adminData = adminDoc.data();
-                  const profProfile: any = {
-                    name: adminData.name,
-                    email: firebaseUser.email,
-                    role: 'professor',
-                    assignedSections: adminData.assignedSections || [],
-                    assignedSection: adminData.assignedSection || (adminData.assignedSections?.[0] || null),
-                    createdAt: adminData.createdAt || new Date().toISOString()
-                  };
-                  await setDoc(userDocRef, profProfile);
-                  return true;
-                }
-              }
-              return false;
-            };
-
-            checkProfessorMigration().then(migrated => {
-              if (!migrated && !isAdmin) {
-                setDoc(userDocRef, initialUser);
-              }
-            });
+            // New user doc not found.
+            // If it's a portal account and not a hardcoded admin, don't auto-create as student
+            // unless it's explicitly a student email (all students use Google/Gmail)
+            const isPortalEmail = firebaseUser.email?.endsWith('@school.portal');
+            if (isAdmin) {
+              // Admin handled by exists/admins check usually, but for hardcoded:
+              setUser(initialUser);
+            } else if (isPortalEmail) {
+              // Don't auto-create for portal emails as they are professors-to-be
+              // We'll show a "Pending" or "Access Denied" state via Dashboard if they login
+              setUser({ ...initialUser, role: 'student' as any, status: 'pending_approval' } as any);
+            } else {
+              // Standard Google user (Student)
+              await setDoc(userDocRef, initialUser);
+            }
           }
         }, (error) => {
           console.error("Firestore Error in App.tsx user listener:", error);

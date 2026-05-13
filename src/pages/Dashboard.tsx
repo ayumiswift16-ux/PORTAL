@@ -73,7 +73,7 @@ export default function Dashboard({ user }: DashboardProps) {
 
     if (user.role === 'admin') {
       // Use query limit to reduce data consumption
-      const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(50));
+      const q = query(collection(db, 'enrollments'), orderBy('updatedAt', 'desc'), limit(50));
       dataUnsub = onSnapshot(q, (querySnapshot) => {
         const allDocs = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as EnrollmentRecord);
         
@@ -215,9 +215,9 @@ export default function Dashboard({ user }: DashboardProps) {
     try {
       const [hours, minutes] = time.split(':');
       const h = parseInt(hours);
-      const ampm = h >= 12 ? 'PM' : 'AM';
+      const ampm = h >= 12 ? 'pm' : 'am';
       const formattedHours = h % 12 || 12;
-      return `${formattedHours}:${minutes} ${ampm}`;
+      return `${formattedHours}:${minutes}${ampm}`;
     } catch (e) {
       return time;
     }
@@ -492,7 +492,7 @@ export default function Dashboard({ user }: DashboardProps) {
                           {(enrollment.status === 'Validating' && enrollment.studentInfo.yearLevel === '1st Year') ? 'Assessment' : enrollment.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs font-medium text-slate-400">{enrollment.enrolledAt.split('T')[0]}</td>
+                      <td className="px-6 py-4 text-xs font-medium text-slate-400">{(enrollment.enrolledAt || enrollment.updatedAt || '').split('T')[0]}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -554,7 +554,7 @@ export default function Dashboard({ user }: DashboardProps) {
                                </div>
                                <div>
                                  <p className="text-sm font-bold text-slate-900">{schedule.subject}</p>
-                                 <p className="text-xs text-slate-500">{schedule.startTime} - {schedule.endTime}</p>
+                                 <p className="text-xs text-slate-500">{formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}</p>
                                </div>
                              </div>
                              <div className="text-right">
@@ -727,21 +727,44 @@ export default function Dashboard({ user }: DashboardProps) {
                             </>
                           )}
                         </div>
-                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') && enrollmentRecord?.updatedAt ? (() => {
-                        const submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
-                        const updatedAtTime = new Date(enrollmentRecord.updatedAt);
-                        const assessmentTime = updatedAtTime < submissionTime ? submissionTime : updatedAtTime;
-
-                        return (
-                          <div className="text-center py-2">
-                             <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
+                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? (() => {
+                        const is1stYear = enrollmentRecord?.yearLevel === '1st Year';
+                        const noExamDate = !enrollmentRecord?.examDate;
+                        const isValidating = studentStatus === 'Validating';
+                        
+                        // For 1st years with no exam date yet and still validating, show "Not Set"
+                        if (is1stYear && noExamDate && isValidating) {
+                          return (
+                            <div className="text-center py-6 bg-amber-50/50 rounded-2xl border border-dashed border-amber-200 mt-2">
+                              <div className="flex flex-col items-center gap-2">
+                                <div className="h-10 w-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 mb-2">
+                                  <Clock className="h-6 w-6" />
+                                </div>
+                                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-700">Exam Date Not Set</span>
+                                <p className="text-[10px] text-amber-600/70 font-medium px-6">Your entrance exam schedule will appear here once processed by the registrar.</p>
+                              </div>
                             </div>
-                            <p className="text-xs font-bold text-[#052e16]">{assessmentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                            <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{assessmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                          </div>
-                        );
+                          );
+                        }
+
+                        // Otherwise show Assessment Done (if it has a date)
+                        if (enrollmentRecord?.updatedAt) {
+                          const submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
+                          const updatedAtTime = new Date(enrollmentRecord.updatedAt);
+                          const assessmentTime = updatedAtTime < submissionTime ? submissionTime : updatedAtTime;
+
+                          return (
+                            <div className="text-center py-2">
+                               <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
+                              </div>
+                              <p className="text-xs font-bold text-[#052e16]">{assessmentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                              <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{assessmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            </div>
+                          );
+                        }
+                        return null;
                       })() : null}
                     </div>
 

@@ -79,9 +79,9 @@ export default function Records() {
     try {
       const [hours, minutes] = time.split(':');
       const h = parseInt(hours);
-      const ampm = h >= 12 ? 'PM' : 'AM';
+      const ampm = h >= 12 ? 'pm' : 'am';
       const formattedHours = h % 12 || 12;
-      return `${formattedHours}:${minutes} ${ampm}`;
+      return `${formattedHours}:${minutes}${ampm}`;
     } catch (e) {
       return time;
     }
@@ -126,7 +126,7 @@ export default function Records() {
         qEnroll = query(collection(db, 'enrollments'), where('section', '==', 'NONE_ASSIGNED'));
       }
     } else {
-      qEnroll = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(100));
+      qEnroll = query(collection(db, 'enrollments'), orderBy('updatedAt', 'desc'), limit(100));
     }
 
     const unsubscribeEnroll = onSnapshot(qEnroll, (snapshot) => {
@@ -222,6 +222,7 @@ export default function Records() {
         fullName: request.fullName,
         institute: request.institute,
         username: sanitizedUsername,
+        gmail: request.email, // Store their gmail for easier lookup
         email: officialEmail,
         password: request.password,
         role: 'professor',
@@ -236,27 +237,28 @@ export default function Records() {
          await setDoc(doc(db, 'users', request.username), {
             assignedSections,
             assignedSection: assignedSections[0] || null,
-            email: officialEmail
+            email: officialEmail,
+            role: 'professor'
          }, { merge: true });
       }
 
       // 3. Add to admins collection for rules access via email as ID
-      const emailId = officialEmail.replace(/\./g, '_'); // Safe ID
+      const emailId = officialEmail; // Safe ID
       await setDoc(doc(db, 'admins', emailId), {
         email: officialEmail,
         name: request.fullName,
-        role: 'Professor',
+        role: 'professor', // Use lowercase for consistency
         assignedSections,
         assignedSection: assignedSections[0] || null
       });
       
       // Also add their real Gmail if provided
       if (request.email) {
-        const gmailId = request.email.replace(/\./g, '_');
+        const gmailId = request.email;
         await setDoc(doc(db, 'admins', gmailId), {
           email: request.email,
           name: request.fullName,
-          role: 'Professor',
+          role: 'professor', // Use lowercase for consistency
           assignedSections,
           assignedSection: assignedSections[0] || null
         });
@@ -492,8 +494,8 @@ export default function Records() {
 
       // 3. Delete from admins
       const officialEmail = `${sanitizedUsername}@school.portal`;
-      const adminDocsToDelete = new Set([officialEmail.replace(/\./g, '_')]);
-      if (prof.email) adminDocsToDelete.add(prof.email.replace(/\./g, '_'));
+      const adminDocsToDelete = new Set([officialEmail]);
+      if (prof.email) adminDocsToDelete.add(prof.email);
 
       for (const id of Array.from(adminDocsToDelete)) {
          await deleteDoc(doc(db, 'admins', id));
@@ -1906,14 +1908,14 @@ export default function Records() {
 
                         // 3. Update admins collection for Gmail/Portal access migration
                         const officialEmail = `${editingProf.username.toLowerCase()}@school.portal`;
-                        const emailId = officialEmail.replace(/\./g, '_');
+                        const emailId = officialEmail;
                         await setDoc(doc(db, 'admins', emailId), { 
                           assignedSections: sectionsArr,
                           assignedSection: sectionsArr[0] || null 
                         }, { merge: true });
 
                         if (editingProf.email) {
-                          const gmailId = editingProf.email.replace(/\./g, '_');
+                          const gmailId = editingProf.email;
                           await setDoc(doc(db, 'admins', gmailId), { 
                             assignedSections: sectionsArr,
                             assignedSection: sectionsArr[0] || null 
