@@ -20,7 +20,122 @@ export default function Login({ onLogin }: LoginProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showProfessorForm, setShowProfessorForm] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [userEnteredCode, setUserEnteredCode] = useState('');
+  const [profData, setProfData] = useState({
+    fullName: '',
+    institute: 'ICS',
+    username: '',
+    password: '',
+    email: ''
+  });
   const navigate = useNavigate();
+
+  const handleSendVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profData.email) {
+      toast.error("Please provide an email address.");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Generate 6-digit code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setVerificationCode(code);
+      
+      // Call backend API to send the email
+      const response = await fetch("/api/send-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: profData.email, code }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        if (result.message?.includes("not configured")) {
+          toast.success("Verification code logged to server console (Credentials not set).", { duration: 6000 });
+        } else {
+          toast.success(`Verification code sent to ${profData.email}!`);
+        }
+        setIsVerifying(true);
+      } else {
+        const errorMsg = result.message || result.error || "Failed to send code";
+        throw new Error(errorMsg);
+      }
+    } catch (error: any) {
+      console.error("Email error:", error);
+      toast.error(error.message || 'Failed to send verification code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProfessorRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (userEnteredCode !== verificationCode) {
+      toast.error('Invalid verification code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { collection, addDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const { createUserWithEmailAndPassword, signOut } = await import('firebase/auth');
+      
+      // 1. Create the Auth account immediately with portal email
+      // This ensures they can login later with signInWithEmailAndPassword
+      // Sanitize username to prevent invalid emails (remove spaces)
+      const sanitizedUsername = profData.username.toLowerCase().replace(/\s+/g, '');
+      const portalEmail = `${sanitizedUsername}@school.portal`;
+      let uid = '';
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, portalEmail, profData.password);
+        uid = userCredential.user.uid;
+        // Sign out immediately as their request is still pending
+        await signOut(auth);
+      } catch (authError: any) {
+        if (authError.code === 'auth/invalid-email') {
+          toast.error("Invalid username format for portal access.");
+          throw authError;
+        }
+        // If user already exists, it's fine, maybe they are resubmitting
+        if (authError.code === 'auth/email-already-in-use') {
+          // This is tricky if we don't have the UID. But we'll try to handle it in approval if UID is missing.
+        } else {
+          throw authError;
+        }
+      }
+
+      await addDoc(collection(db, 'teacher_requests'), {
+        ...profData,
+        username: sanitizedUsername, // Use sanitized username
+        uid: uid || null,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+      
+      toast.success('Request submitted! Please wait for admin approval.');
+      setShowProfessorForm(false);
+      setProfData({
+        fullName: '',
+        institute: 'ICS',
+        username: '',
+        password: '',
+        email: ''
+      });
+    } catch (error) {
+      console.error("Error submitting professor request:", error);
+      toast.error('Failed to submit request.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -29,9 +144,13 @@ export default function Login({ onLogin }: LoginProps) {
       await signInWithPopup(auth, provider);
       toast.success('Logged in successfully!');
       navigate('/dashboard');
-    } catch (error) {
-      console.error("Google login error:", error);
-      toast.error('Failed to sign in with Google.');
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user') {
+        toast.error('Sign in cancelled.');
+      } else {
+        console.error("Google login error:", error);
+        toast.error('Failed to sign in with Google.');
+      }
     } finally {
       setLoading(false);
     }
@@ -42,17 +161,49 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true);
 
     try {
-      const lowerUsername = username.toLowerCase();
+      const sanitizedInput = username.toLowerCase().replace(/\s+/g, '');
       // Map Admin1-Admin5 to their secure email accounts
-      if (lowerUsername.match(/^admin[1-5]$/)) {
-        const email = `${lowerUsername}@school.portal`;
+      if (sanitizedInput.match(/^admin[1-5]$/)) {
+        const email = `${sanitizedInput}@school.portal`;
         await signInWithEmailAndPassword(auth, email, password);
         toast.success(`Welcome back, ${username}!`);
         navigate('/dashboard');
       } else {
-        // For students or other logins, we encourage Google Login for better security
-        // but we could also allow custom logic here if they create accounts.
-        toast.error("Please use 'Sign in with Google' or use a valid Admin account.");
+        const email = `${sanitizedInput}@school.portal`;
+        try {
+          // Try to sign in directly first - this avoids the unauthorized Firestore query
+          await signInWithEmailAndPassword(auth, email, password);
+          
+          // If successful, now we can fetch the user doc because we are authenticated
+          const { doc, getDoc } = await import('firebase/firestore');
+          const { db } = await import('../lib/firebase');
+          
+          // First try by username as ID
+          let userDoc = await getDoc(doc(db, 'users', sanitizedInput));
+          
+          // If not found, try by Auth UID
+          if (!userDoc.exists()) {
+             userDoc = await getDoc(doc(db, 'users', auth.currentUser?.uid || ''));
+          }
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            toast.success(`Welcome back, Professor ${userData.fullName || userData.name}!`);
+            navigate('/dashboard');
+          } else {
+            // Document missing but Auth exists? This shouldn't happen but log it
+            console.warn("User authenticated but profile missing in Firestore.");
+            toast.success("Welcome back!");
+            navigate('/dashboard');
+          }
+        } catch (authError: any) {
+          console.error("Auth error:", authError);
+          if (authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential' || authError.code === 'auth/invalid-email') {
+             toast.error("Invalid credentials or account not found.");
+          } else {
+             toast.error("Login failed. Please check your credentials.");
+          }
+        }
       }
     } catch (error: any) {
       console.error("Login error:", error);
@@ -102,7 +253,154 @@ export default function Login({ onLogin }: LoginProps) {
 
         <Card className="border-none shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-[#0a2018]/40 backdrop-blur-3xl rounded-[2.5rem] overflow-hidden border border-white/5">
           <CardContent className="p-10">
-            <form onSubmit={handleLogin} className="space-y-6">
+            {showProfessorForm ? (
+              isVerifying ? (
+                <form onSubmit={handleProfessorRequest} className="space-y-6">
+                  <div className="text-center mb-6">
+                    <div className="h-16 w-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                      <ShieldCheck className="h-8 w-8 text-emerald-400" />
+                    </div>
+                    <h2 className="text-xl font-black text-white italic uppercase">Verify Email</h2>
+                    <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-1">
+                      Enter the 6-digit code sent to<br />
+                      <span className="text-white font-black">{profData.email}</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="relative group">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={userEnteredCode}
+                        onChange={(e) => setUserEnteredCode(e.target.value.replace(/\D/g, ''))}
+                        className="w-full h-14 text-center tracking-[1em] text-2xl font-black rounded-2xl border border-white/5 outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/10 transition-all text-white bg-white/5 placeholder:text-white/10"
+                        placeholder="000000"
+                        required
+                      />
+                    </div>
+                    <p className="text-[9px] text-white/30 text-center uppercase tracking-widest font-bold">
+                      Didn't receive the code? 
+                      <button 
+                        type="button" 
+                        onClick={handleSendVerification}
+                        className="ml-1 text-emerald-400 hover:underline"
+                      >
+                        Resend
+                      </button>
+                    </p>
+                  </div>
+
+                  <div className="pt-4 space-y-3">
+                    <Button
+                      type="submit"
+                      className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-[0_10px_30px_rgba(16,185,129,0.2)]"
+                      isLoading={loading}
+                    >
+                      Confirm & Create Account
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setIsVerifying(false)}
+                      className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[10px] text-white/40 hover:text-white"
+                    >
+                      Change Email
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleSendVerification} className="space-y-4">
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-black text-white italic uppercase">Professor Access</h2>
+                  <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-1">Fill out the request form below</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest px-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={profData.fullName}
+                      onChange={(e) => setProfData({...profData, fullName: e.target.value})}
+                      placeholder="Enter full name"
+                      className="w-full h-11 pl-4 pr-4 rounded-xl border border-white/5 outline-none focus:border-emerald-500/50 text-sm text-white bg-white/5 font-bold"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest px-1">Institute</label>
+                    <select
+                      value={profData.institute}
+                      onChange={(e) => setProfData({...profData, institute: e.target.value as any})}
+                      className="w-full h-11 pl-4 pr-4 rounded-xl border border-white/5 outline-none focus:border-emerald-500/50 text-sm text-white bg-[#0a2018] font-bold"
+                      required
+                    >
+                      <option value="ICS">ICS</option>
+                      <option value="IBE">IBE</option>
+                      <option value="ITE">ITE</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest px-1">Gmail</label>
+                    <input
+                      type="email"
+                      value={profData.email}
+                      onChange={(e) => setProfData({...profData, email: e.target.value})}
+                      placeholder="Enter gmail"
+                      className="w-full h-11 pl-4 pr-4 rounded-xl border border-white/5 outline-none focus:border-emerald-500/50 text-sm text-white bg-white/5 font-bold"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-white/40 uppercase tracking-widest px-1">Username</label>
+                      <input
+                        type="text"
+                        value={profData.username}
+                        onChange={(e) => setProfData({...profData, username: e.target.value})}
+                        placeholder="Username"
+                        className="w-full h-11 pl-4 pr-4 rounded-xl border border-white/5 outline-none focus:border-emerald-500/50 text-sm text-white bg-white/5 font-bold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-white/40 uppercase tracking-widest px-1">Password</label>
+                      <input
+                        type="password"
+                        value={profData.password}
+                        onChange={(e) => setProfData({...profData, password: e.target.value})}
+                        placeholder="Password"
+                        className="w-full h-11 pl-4 pr-4 rounded-xl border border-white/5 outline-none focus:border-emerald-500/50 text-sm text-white bg-white/5 font-bold"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 space-y-3">
+                  <Button
+                    type="submit"
+                    className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-[0_10px_30px_rgba(16,185,129,0.2)]"
+                    isLoading={loading}
+                  >
+                    Send Verification Code
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowProfessorForm(false)}
+                    className="w-full h-12 rounded-xl font-black uppercase tracking-widest text-[10px] text-white/40 hover:text-white"
+                  >
+                    Back to Login
+                  </Button>
+                </div>
+              </form>
+            )) : (
+              <form onSubmit={handleLogin} className="space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em] px-1">Registrar ID</label>
@@ -218,8 +516,16 @@ export default function Login({ onLogin }: LoginProps) {
                 <p className="text-[9px] text-white/10 font-black uppercase tracking-[0.4em]">
                   CDMES v2.0 • Security Optimized
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setShowProfessorForm(true)}
+                  className="text-[10px] text-emerald-500/50 hover:text-emerald-500 font-black uppercase tracking-widest transition-colors mt-2"
+                >
+                  Create Professor Account
+                </button>
               </div>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>

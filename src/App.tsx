@@ -43,15 +43,60 @@ export default function App() {
         setUser(initialUser);
         localStorage.setItem('cdm_user', JSON.stringify(initialUser));
 
-        // Sync with users collection for extra data like profile picture
+        // Sync with users collection for extra data like role, profile picture, and assigned section
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         unsubscribeUserDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const extraData = docSnap.data();
-            setUser(prev => prev ? { ...prev, ...extraData } : null);
+            setUser(prev => {
+              const updated = prev ? { ...prev, ...extraData } : { ...initialUser, ...extraData };
+              localStorage.setItem('cdm_user', JSON.stringify(updated));
+              return updated;
+            });
           } else {
-            // Create the doc if it doesn't exist
-            setDoc(userDocRef, initialUser);
+            // Check if this is a professor logging in for the first time
+            const checkProfessorMigration = async () => {
+              // 1. Check by portal username if applicable
+              const portalMatch = firebaseUser.email?.match(/^(.+)@school\.portal$/);
+              if (portalMatch) {
+                const username = portalMatch[1];
+                const { getDoc } = await import('firebase/firestore');
+                const usernameDoc = await getDoc(doc(db, 'users', username));
+                if (usernameDoc.exists()) {
+                  const data = usernameDoc.data();
+                  await setDoc(userDocRef, data);
+                  return true;
+                }
+              }
+              
+              // 2. Check the admins collection to see if their Gmail is approved
+              if (firebaseUser.email) {
+                const { getDoc } = await import('firebase/firestore');
+                const emailId = firebaseUser.email.replace(/\./g, '_');
+                const adminDoc = await getDoc(doc(db, 'admins', emailId));
+                if (adminDoc.exists()) {
+                  // This is an approved professor using Gmail
+                  const adminData = adminDoc.data();
+                  const profProfile: any = {
+                    name: adminData.name,
+                    email: firebaseUser.email,
+                    role: 'professor',
+                    assignedSections: adminData.assignedSections || [],
+                    assignedSection: adminData.assignedSection || (adminData.assignedSections?.[0] || null),
+                    createdAt: adminData.createdAt || new Date().toISOString()
+                  };
+                  await setDoc(userDocRef, profProfile);
+                  return true;
+                }
+              }
+              return false;
+            };
+
+            checkProfessorMigration().then(migrated => {
+              if (!migrated && !isAdmin) {
+                setDoc(userDocRef, initialUser);
+              }
+            });
           }
         }, (error) => {
           console.error("Firestore Error in App.tsx user listener:", error);
@@ -107,14 +152,21 @@ export default function App() {
                   <Route 
                     path="/records" 
                     element={
-                      user.role === 'admin' 
+                      (user.role === 'admin' || user.role === 'professor')
                         ? <PageTransition><Records /></PageTransition> 
                         : <Navigate to="/dashboard" replace />
                     } 
                   />
                   <Route path="/steps" element={<PageTransition><Steps /></PageTransition>} />
                   <Route path="/courses" element={<PageTransition><Courses /></PageTransition>} />
-                  <Route path="/scheduling" element={<PageTransition><Scheduling /></PageTransition>} />
+                  <Route 
+                    path="/scheduling" 
+                    element={
+                      (user.role === 'admin' || user.role === 'professor')
+                        ? <PageTransition><Scheduling /></PageTransition> 
+                        : <Navigate to="/dashboard" replace />
+                    }
+                  />
                   <Route 
                     path="/settings" 
                     element={

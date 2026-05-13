@@ -31,6 +31,7 @@ export default function Scheduling() {
         const sectionSnap = await getDocs(collection(db, 'sections'));
         const sectionData = sectionSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Section[];
         setSections(sectionData);
+        
         if (isAdmin && sectionData.length > 0 && !selectedSection) {
           setSelectedSection(sectionData[0].name);
         }
@@ -39,15 +40,24 @@ export default function Scheduling() {
         const scheduleSnap = await getDocs(collection(db, 'schedules'));
         setSchedules(scheduleSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as ScheduleItem[]);
 
-        // If student, find their assigned section
-        if (!isAdmin && user) {
-          const docRef = doc(db, 'enrollments', user.username);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const mine = docSnap.data() as EnrollmentRecord;
-            const assignedSection = mine.section || mine.studentInfo?.section;
-            if (assignedSection) {
-              setSelectedSection(assignedSection);
+        // If student or professor, find their assigned section
+        if (user) {
+          if (user.role === 'professor') {
+            const profSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
+            if (profSections.length > 0) {
+              if (!selectedSection || !profSections.includes(selectedSection)) {
+                setSelectedSection(profSections[0]);
+              }
+            }
+          } else if (user.role === 'student') {
+            const docRef = doc(db, 'enrollments', user.username);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const mine = docSnap.data() as EnrollmentRecord;
+              const assignedSection = mine.section || mine.studentInfo?.section;
+              if (assignedSection) {
+                setSelectedSection(assignedSection);
+              }
             }
           }
         }
@@ -57,7 +67,7 @@ export default function Scheduling() {
     };
     
     fetchData();
-  }, [isAdmin, user]);
+  }, [isAdmin, user, selectedSection]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [isManagingSections, setIsManagingSections] = useState(false);
@@ -151,6 +161,14 @@ export default function Scheduling() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const filteredDropdownSections = sections
+    .filter(s => {
+      if (isAdmin) return true;
+      if (user?.role === 'professor') {
+        const profSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
+        return profSections.includes(s.name);
+      }
+      return false;
+    })
     .filter(s => s && s.name && s.name.trim() !== '')
     .filter(s => 
       s.name.toLowerCase().includes(dropdownSearch.toLowerCase()) ||
@@ -284,7 +302,7 @@ export default function Scheduling() {
       </div>
 
       {/* Section Dropdown Selector */}
-      {isAdmin && (
+      {(isAdmin || user?.role === 'professor') && (
         <div className="relative z-20 mb-8 max-w-xs">
           <button
             onClick={() => setIsSectionOpen(!isSectionOpen)}

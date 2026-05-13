@@ -23,22 +23,29 @@ import {
   School,
   Clock,
   ShieldCheck,
-  Briefcase
+  Briefcase,
+  Users
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/src/components/ui/Card';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 import { cn } from '@/src/utils/cn';
 import { useNavigate } from 'react-router-dom';
-import { EnrollmentRecord } from '@/src/types';
+import { EnrollmentRecord, TeacherRequest } from '@/src/types';
 import toast from 'react-hot-toast';
 import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where, limit, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where, limit, getDocs, setDoc, addDoc } from 'firebase/firestore';
 import { COURSES } from '@/src/constants';
 import { sendNotification } from '@/src/lib/notifications';
 
 export default function Records() {
+  const [user] = useState<any | null>(() => {
+    const saved = localStorage.getItem('cdm_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [activeTab, setActiveTab] = useState<'students' | 'professors'>('students');
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
+  const [teacherRequests, setTeacherRequests] = useState<TeacherRequest[]>([]);
   const [studentProfiles, setStudentProfiles] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCourse, setFilterCourse] = useState('All');
@@ -59,6 +66,11 @@ export default function Records() {
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
   
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [profDeleteId, setProfDeleteId] = useState<string | null>(null);
+  const [profSectionAssign, setProfSectionAssign] = useState<Record<string, string[]>>({});
+  const [profSectionSearch, setProfSectionSearch] = useState<string>('');
+  const [isProfSectionsModalOpen, setIsProfSectionsModalOpen] = useState(false);
+  const [editingProf, setEditingProf] = useState<TeacherRequest | null>(null);
   
   const navigate = useNavigate();
 
@@ -99,7 +111,24 @@ export default function Records() {
 
   useEffect(() => {
     // Real-time Enrollments
-    const qEnroll = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(100));
+    let qEnroll;
+    if (user?.role === 'professor') {
+      const professorSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
+      if (professorSections.length > 0) {
+        // Firestore 'in' operator supports up to 30 items
+        qEnroll = query(
+          collection(db, 'enrollments'), 
+          where('section', 'in', professorSections), 
+          where('status', '==', 'Enrolled')
+        );
+      } else {
+        // If no sections assigned, show nothing for professors
+        qEnroll = query(collection(db, 'enrollments'), where('section', '==', 'NONE_ASSIGNED'));
+      }
+    } else {
+      qEnroll = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(100));
+    }
+
     const unsubscribeEnroll = onSnapshot(qEnroll, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -127,12 +156,26 @@ export default function Records() {
       setSections(sectionData);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'sections'));
 
+    // Real-time Teacher Requests (only for admins)
+    let unsubscribeProf = () => {};
+    if (user?.role === 'admin') {
+      const qProf = query(collection(db, 'teacher_requests'), orderBy('createdAt', 'desc'));
+      unsubscribeProf = onSnapshot(qProf, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        })) as TeacherRequest[];
+        setTeacherRequests(data);
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'teacher_requests'));
+    }
+
     return () => {
       unsubscribeEnroll();
       unsubscribeUsers();
       unsubscribeSections();
+      unsubscribeProf();
     };
-  }, []);
+  }, [user]);
 
   const filteredEnrollments = useMemo(() => {
     return enrollments.filter(enrollment => {
@@ -147,6 +190,84 @@ export default function Records() {
       return matchesSearch && matchesCourse;
     });
   }, [enrollments, searchTerm, filterCourse]);
+
+  const filteredProfessors = useMemo(() => {
+    return teacherRequests.filter(req => 
+      req.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      req.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      req.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [teacherRequests, searchTerm]);
+
+  const handleApproveProfessor = async (request: TeacherRequest) => {
+    try {
+      const assignedSections = profSectionAssign[request.id] || [];
+      if (assignedSections.length === 0) {
+        toast.error("Please assign at least one section to this professor.");
+        return;
+      }
+
+      // 1. Mark request as approved
+      await updateDoc(doc(db, 'teacher_requests', request.id), { 
+        status: 'approved',
+        assignedSections 
+      });
+      
+      // 2. Create user record
+      const sanitizedUsername = request.username.toLowerCase().replace(/\s+/g, '');
+      const officialEmail = `${sanitizedUsername}@school.portal`;
+      const userDocId = (request as any).uid || sanitizedUsername;
+      
+      await setDoc(doc(db, 'users', userDocId), {
+        fullName: request.fullName,
+        institute: request.institute,
+        username: sanitizedUsername,
+        email: officialEmail,
+        password: request.password,
+        role: 'professor',
+        assignedSections,
+        assignedSection: assignedSections[0], // for legacy
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      // If they had a username-based doc that was different (due to sanitization), we should probably delete it or link it
+      if (userDocId !== request.username) {
+         // This handles cases where people already have a doc by unsanitized username
+         await setDoc(doc(db, 'users', request.username), {
+            assignedSections,
+            assignedSection: assignedSections[0] || null,
+            email: officialEmail
+         }, { merge: true });
+      }
+
+      // 3. Add to admins collection for rules access via email as ID
+      const emailId = officialEmail.replace(/\./g, '_'); // Safe ID
+      await setDoc(doc(db, 'admins', emailId), {
+        email: officialEmail,
+        name: request.fullName,
+        role: 'Professor',
+        assignedSections,
+        assignedSection: assignedSections[0] || null
+      });
+      
+      // Also add their real Gmail if provided
+      if (request.email) {
+        const gmailId = request.email.replace(/\./g, '_');
+        await setDoc(doc(db, 'admins', gmailId), {
+          email: request.email,
+          name: request.fullName,
+          role: 'Professor',
+          assignedSections,
+          assignedSection: assignedSections[0] || null
+        });
+      }
+      
+      toast.success(`${request.fullName} approved as Professor!`);
+    } catch (error) {
+      console.error("Error approving professor:", error);
+      toast.error('Failed to approve professor.');
+    }
+  };
 
   const handleOpenValidate = (record: EnrollmentRecord) => {
     setSelectedRecord(record);
@@ -348,229 +469,434 @@ export default function Records() {
     }
   };
 
+  const confirmDeleteProfessor = async () => {
+    if (!profDeleteId) return;
+    const prof = teacherRequests.find(p => p.id === profDeleteId);
+    if (!prof) {
+      setProfDeleteId(null);
+      return;
+    }
+
+    try {
+      // 1. Delete from teacher_requests
+      await deleteDoc(doc(db, 'teacher_requests', profDeleteId));
+
+      // 2. Delete from users
+      const sanitizedUsername = prof.username.toLowerCase().replace(/\s+/g, '');
+      const userDocsToDelete = new Set([sanitizedUsername, prof.username]);
+      if ((prof as any).uid) userDocsToDelete.add((prof as any).uid);
+      
+      for (const id of Array.from(userDocsToDelete)) {
+         await deleteDoc(doc(db, 'users', id));
+      }
+
+      // 3. Delete from admins
+      const officialEmail = `${sanitizedUsername}@school.portal`;
+      const adminDocsToDelete = new Set([officialEmail.replace(/\./g, '_')]);
+      if (prof.email) adminDocsToDelete.add(prof.email.replace(/\./g, '_'));
+
+      for (const id of Array.from(adminDocsToDelete)) {
+         await deleteDoc(doc(db, 'admins', id));
+      }
+
+      toast.success('Professor account and all related records deleted.');
+    } catch (error) {
+      console.error("Professor delete error:", error);
+      toast.error('Failed to fully delete professor account.');
+    } finally {
+      setProfDeleteId(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Student Records</h2>
-          <p className="text-slate-500 mt-1">Manage and view all enrolled student applications.</p>
+          <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
+            {user?.role === 'professor' ? 'Class List' : 'University Records'}
+          </h2>
+          <p className="text-slate-500 mt-1">
+            {user?.role === 'professor' 
+              ? `Viewing enrolled students for section ${user.assignedSection}`
+              : 'Manage student applications and professor account requests.'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="flex items-center gap-2">
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
-          <Button onClick={() => navigate('/enroll')} className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4" />
-            Add New Record
-          </Button>
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('students')}
+              className={cn(
+                "px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all",
+                activeTab === 'students' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+              )}
+            >
+              Students
+            </button>
+            {user?.role === 'admin' && (
+              <button
+                onClick={() => setActiveTab('professors')}
+                className={cn(
+                  "px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2",
+                  activeTab === 'professors' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                Professors
+                {teacherRequests.filter(r => r.status === 'pending').length > 0 && (
+                  <span className="h-4 w-4 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center animate-pulse">
+                    {teacherRequests.filter(r => r.status === 'pending').length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
       
-      {/* Section Counts Summary */}
-      <div className="flex flex-wrap gap-4 overflow-x-auto pb-2 custom-scrollbar">
-        {Object.entries(sectionCounts).length > 0 ? (
-          Object.entries(sectionCounts).map(([section, count]) => (
-            <div key={section} className="flex flex-col bg-white border border-slate-100 rounded-2xl p-4 min-w-[140px] shadow-sm hover:border-blue-200 transition-all">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Section</span>
-              <span className="text-sm font-black text-slate-900 mb-1">{section}</span>
-              <div className="flex items-center gap-1.5">
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <p className="text-[10px] font-bold text-slate-500 uppercase">{count} Students Enrolled</p>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">No enrolled students in any section yet</p>
-        )}
-      </div>
-
-      <Card glass className="border-none shadow-sm overflow-hidden">
-        <CardHeader className="border-b border-slate-200/50 p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by name, ID or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full h-11 pl-10 pr-4 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all border-transparent"
-              />
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50">
-                <Filter className="h-4 w-4 text-slate-400" />
-                <select 
-                  className="bg-transparent text-sm font-medium text-slate-600 focus:outline-none cursor-pointer"
-                  value={filterCourse}
-                  onChange={(e) => setFilterCourse(e.target.value)}
-                >
-                  <option value="All">All Courses</option>
-                  {COURSES.map(course => (
-                    <option key={course.id} value={course.id}>{course.id}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+      {activeTab === 'students' ? (
+        <>
+          {/* Section Counts Summary */}
+          <div className="flex flex-wrap gap-4 overflow-x-auto pb-2 custom-scrollbar">
+            {Object.entries(sectionCounts).length > 0 ? (
+              Object.entries(sectionCounts).map(([section, count]) => (
+                <div key={section} className="flex flex-col bg-white border border-slate-100 rounded-2xl p-4 min-w-[140px] shadow-sm hover:border-blue-200 transition-all">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Section</span>
+                  <span className="text-sm font-black text-slate-900 mb-1">{section}</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">{count} Students Enrolled</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">No enrolled students in any section yet</p>
+            )}
           </div>
-        </CardHeader>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Student Profile</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Course & Year</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Applied on</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredEnrollments.length > 0 ? (
-                filteredEnrollments.map((enrollment, i) => (
-                  <tr key={i} className="hover:bg-slate-50/80 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-4">
-                        <div className={cn(
-                          "h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white overflow-hidden",
-                          (studentProfiles[enrollment.userId || ''] || enrollment.studentInfo.documents?.twoByTwoPhoto) ? "bg-white" : "bg-indigo-50 text-indigo-600"
-                        )}>
-                          {studentProfiles[enrollment.userId || ''] ? (
-                            <img src={studentProfiles[enrollment.userId || '']} alt="Profile" className="w-full h-full object-cover" />
-                          ) : enrollment.studentInfo.documents?.twoByTwoPhoto ? (
-                            <img src={enrollment.studentInfo.documents.twoByTwoPhoto} alt="Record Photo" className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="uppercase">{enrollment.studentInfo.firstName[0]}{enrollment.studentInfo.lastName[0]}</span>
-                          )}
+
+          <Card glass className="border-none shadow-sm overflow-hidden">
+            <CardHeader className="border-b border-slate-200/50 p-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, ID or email..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full h-11 pl-10 pr-4 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all border-transparent"
+                  />
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50">
+                    <Filter className="h-4 w-4 text-slate-400" />
+                    <select 
+                      className="bg-transparent text-sm font-medium text-slate-600 focus:outline-none cursor-pointer"
+                      value={filterCourse}
+                      onChange={(e) => setFilterCourse(e.target.value)}
+                    >
+                      <option value="All">All Courses</option>
+                      {COURSES.map(course => (
+                        <option key={course.id} value={course.id}>{course.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50/50">
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Student Profile</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Course & Year</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Applied on</th>
+                    {user?.role === 'admin' && <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredEnrollments.length > 0 ? (
+                    filteredEnrollments.map((enrollment, i) => (
+                      <tr key={i} className="hover:bg-slate-50/80 transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            <div className={cn(
+                              "h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm ring-2 ring-white overflow-hidden",
+                              (studentProfiles[enrollment.userId || ''] || enrollment.studentInfo.documents?.twoByTwoPhoto) ? "bg-white" : "bg-indigo-50 text-indigo-600"
+                            )}>
+                              {studentProfiles[enrollment.userId || ''] ? (
+                                <img src={studentProfiles[enrollment.userId || '']} alt="Profile" className="w-full h-full object-cover" />
+                              ) : enrollment.studentInfo.documents?.twoByTwoPhoto ? (
+                                <img src={enrollment.studentInfo.documents.twoByTwoPhoto} alt="Record Photo" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="uppercase">{enrollment.studentInfo.firstName[0]}{enrollment.studentInfo.lastName[0]}</span>
+                              )}
+                            </div>
+                            <div>
+                              <p 
+                                onClick={() => setSelectedDetailRecord(enrollment)}
+                                className="text-sm font-bold text-slate-900 cursor-pointer hover:text-blue-600 hover:underline transition-colors decoration-blue-600/30 underline-offset-2"
+                              >
+                                {enrollment.studentInfo.firstName} {enrollment.studentInfo.lastName}
+                              </p>
+                              <p className="text-xs text-slate-500">{enrollment.studentInfo.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-black text-slate-900 leading-tight">{enrollment.course}</p>
+                              {enrollment.status !== 'Enrolled' && enrollment.secondChoice && (
+                                <span className="text-[9px] font-black text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded leading-none">/ {enrollment.secondChoice}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{enrollment.yearLevel}</p>
+                              {enrollment.studentInfo.documents && (enrollment.studentInfo.documents.summaryOfGrades || enrollment.studentInfo.documents.goodMoral || enrollment.studentInfo.documents.twoByTwoPhoto || enrollment.studentInfo.documents.birthCertificate) && (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedRecord(enrollment);
+                                    setValidationData({
+                                      studentId: enrollment.studentId || '',
+                                      section: enrollment.section || ''
+                                    });
+                                  }}
+                                  className="flex items-center gap-0.5 text-[7px] font-black text-white bg-slate-900 px-1.5 py-0.5 rounded shadow-sm hover:bg-black transition-colors cursor-pointer active:scale-95" 
+                                  title="Click to view uploaded documents"
+                                >
+                                  DOCS
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
+                            {enrollment.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                            enrollment.status === 'Enrolled' ? "bg-emerald-100 text-emerald-700" :
+                            enrollment.status === 'Pending' ? "bg-amber-100 text-amber-700" :
+                            enrollment.status === 'Validating' ? (
+                              enrollment.studentInfo.yearLevel === '1st Year' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                            ) :
+                            "bg-blue-100 text-blue-700"
+                          )}>
+                            {(enrollment.status === 'Validating' && enrollment.studentInfo.yearLevel === '1st Year') ? 'Assessment' : enrollment.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-medium text-slate-400">
+                          {(enrollment.submittedAt || enrollment.enrolledAt).split('T')[0]}
+                        </td>
+                        {user?.role === 'admin' && (
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => handleOpenValidate(enrollment)}
+                                className={cn(
+                                  "px-4 py-2 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all shadow-sm flex items-center gap-2",
+                                  enrollment.status === 'Enrolled' ? "bg-slate-600 hover:bg-slate-700" : "bg-amber-500 hover:bg-emerald-600 shadow-amber-500/10"
+                                )}
+                              >
+                                {enrollment.status === 'Enrolled' ? 'Edit Info' : 'Update'}
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(enrollment.id)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete Record"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-20 text-center">
+                        <div className="flex flex-col items-center gap-4">
+                          <div className="h-16 w-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-300">
+                            <Search className="h-8 w-8" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-bold text-slate-900">No records found</p>
+                            <p className="text-sm text-slate-500">We couldn't find any students matching your criteria.</p>
+                          </div>
+                          <Button variant="outline" onClick={() => { setSearchTerm(''); setFilterCourse('All'); }}>
+                            Clear Filters
+                          </Button>
                         </div>
-                        <div>
-                          <p 
-                            onClick={() => setSelectedDetailRecord(enrollment)}
-                            className="text-sm font-bold text-slate-900 cursor-pointer hover:text-blue-600 hover:underline transition-colors decoration-blue-600/30 underline-offset-2"
-                          >
-                            {enrollment.studentInfo.firstName} {enrollment.studentInfo.lastName}
-                          </p>
-                          <p className="text-xs text-slate-500">{enrollment.studentInfo.email}</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between">
+              <p className="text-xs text-slate-500 font-medium text-left">
+                Showing <span className="font-bold text-slate-900">{filteredEnrollments.length}</span> out of <span className="font-bold text-slate-900">{enrollments.length}</span> students
+              </p>
+              <div className="flex items-center gap-2">
+                <button className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg disabled:opacity-30" disabled>
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <div className="flex items-center gap-1">
+                  <button className="h-8 w-8 rounded-lg bg-blue-600 text-white text-xs font-bold">1</button>
+                  <button className="h-8 w-8 rounded-lg hover:bg-slate-50 text-slate-600 text-xs font-bold transition-colors">2</button>
+                  <button className="h-8 w-8 rounded-lg hover:bg-slate-50 text-slate-600 text-xs font-bold transition-colors">3</button>
+                </div>
+                <button className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg">
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          </Card>
+        </>
+      ) : (
+        <Card glass className="border-none shadow-sm overflow-hidden">
+          <CardHeader className="border-b border-slate-200/50 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-xl font-bold">Professor Requests</CardTitle>
+                <CardDescription>Review and approve account creation requests for professors.</CardDescription>
+              </div>
+              <div className="relative max-w-xs w-full">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search professors..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none transition-all"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50">
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Professor</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Institute</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Account Details</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Requested on</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredProfessors.length > 0 ? (
+                  filteredProfessors.map((prof, i) => (
+                    <tr key={prof.id} className="hover:bg-slate-50/80 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-4">
+                          <div className="h-10 w-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm border border-orange-100">
+                            {prof.fullName[0]}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{prof.fullName}</p>
+                            <p className="text-xs text-slate-500">{prof.email}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-xs font-black text-slate-900 leading-tight">{enrollment.course}</p>
-                          {enrollment.status !== 'Enrolled' && enrollment.secondChoice && (
-                            <span className="text-[9px] font-black text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded leading-none">/ {enrollment.secondChoice}</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{enrollment.yearLevel}</p>
-                          {enrollment.studentInfo.documents && (enrollment.studentInfo.documents.summaryOfGrades || enrollment.studentInfo.documents.goodMoral || enrollment.studentInfo.documents.twoByTwoPhoto || enrollment.studentInfo.documents.birthCertificate) && (
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-[10px] font-black text-white bg-slate-900 px-2 py-0.5 rounded tracking-widest">{prof.institute}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs font-bold text-slate-700">Account: {prof.username}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(profSectionAssign[prof.id] || (prof as any).assignedSections || []).map((s: string) => (
+                              <span key={s} className="text-[8px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-bold">
+                                {s}
+                              </span>
+                            ))}
                             <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedRecord(enrollment);
-                                setValidationData({
-                                  studentId: enrollment.studentId || '',
-                                  section: enrollment.section || ''
+                              onClick={() => {
+                                setEditingProf(prof);
+                                setProfSectionAssign({
+                                  ...profSectionAssign,
+                                  [prof.id]: (prof as any).assignedSections || profSectionAssign[prof.id] || []
                                 });
+                                setIsProfSectionsModalOpen(true);
                               }}
-                              className="flex items-center gap-0.5 text-[7px] font-black text-white bg-slate-900 px-1.5 py-0.5 rounded shadow-sm hover:bg-black transition-colors cursor-pointer active:scale-95" 
-                              title="Click to view uploaded documents"
+                              className="text-[9px] text-blue-600 font-black hover:underline uppercase"
                             >
-                              DOCS
+                              { (profSectionAssign[prof.id] || (prof as any).assignedSections || []).length > 0 ? '+ Manage' : '+ Add Sections' }
                             </button>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
-                        {enrollment.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                        enrollment.status === 'Enrolled' ? "bg-emerald-100 text-emerald-700" :
-                        enrollment.status === 'Pending' ? "bg-amber-100 text-amber-700" :
-                        enrollment.status === 'Validating' ? (
-                          enrollment.studentInfo.yearLevel === '1st Year' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
-                        ) :
-                        "bg-blue-100 text-blue-700"
-                      )}>
-                        {(enrollment.status === 'Validating' && enrollment.studentInfo.yearLevel === '1st Year') ? 'Assessment' : enrollment.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-medium text-slate-400">
-                      {(enrollment.submittedAt || enrollment.enrolledAt).split('T')[0]}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => handleOpenValidate(enrollment)}
-                          className={cn(
-                            "px-4 py-2 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all shadow-sm flex items-center gap-2",
-                            enrollment.status === 'Enrolled' ? "bg-slate-600 hover:bg-slate-700" : "bg-amber-500 hover:bg-emerald-600 shadow-amber-500/10"
-                          )}
-                        >
-                          {enrollment.status === 'Enrolled' ? 'Edit Info' : 'Update'}
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(enrollment.id)}
-                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                          title="Delete Record"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                          prof.status === 'approved' ? "bg-emerald-100 text-emerald-700" :
+                          prof.status === 'pending' ? "bg-amber-100 text-amber-700" :
+                          "bg-red-100 text-red-700"
+                        )}>
+                          {prof.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs font-medium text-slate-400">
+                        {prof.createdAt.split('T')[0]}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {prof.status === 'pending' && (
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => handleApproveProfessor(prof)}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm"
+                            >
+                              Approve
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                if (confirm('Reject this request?')) {
+                                  await updateDoc(doc(db, 'teacher_requests', prof.id), { status: 'rejected' });
+                                  toast.error('Professor request rejected.');
+                                }
+                              }}
+                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                        {prof.status !== 'pending' && (
+                           <button 
+                              onClick={() => setProfDeleteId(prof.id)}
+                              className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                           >
+                            <Trash2 className="h-4 w-4" />
+                           </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-20 text-center">
+                      <div className="flex flex-col items-center gap-4">
+                        <Users className="h-12 w-12 text-slate-100" />
+                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No professor requests found</p>
                       </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="h-16 w-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-300">
-                        <Search className="h-8 w-8" />
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold text-slate-900">No records found</p>
-                        <p className="text-sm text-slate-500">We couldn't find any students matching your criteria.</p>
-                      </div>
-                      <Button variant="outline" onClick={() => { setSearchTerm(''); setFilterCourse('All'); }}>
-                        Clear Filters
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between">
-          <p className="text-xs text-slate-500 font-medium text-left">
-            Showing <span className="font-bold text-slate-900">{filteredEnrollments.length}</span> out of <span className="font-bold text-slate-900">{enrollments.length}</span> students
-          </p>
-          <div className="flex items-center gap-2">
-            <button className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg disabled:opacity-30" disabled>
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <div className="flex items-center gap-1">
-              <button className="h-8 w-8 rounded-lg bg-blue-600 text-white text-xs font-bold">1</button>
-              <button className="h-8 w-8 rounded-lg hover:bg-slate-50 text-slate-600 text-xs font-bold transition-colors">2</button>
-              <button className="h-8 w-8 rounded-lg hover:bg-slate-50 text-slate-600 text-xs font-bold transition-colors">3</button>
-            </div>
-            <button className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg">
-              <ChevronRight className="h-5 w-5" />
-            </button>
+                )}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Detailed Student Profile Modal */}
       <AnimatePresence>
@@ -736,9 +1062,18 @@ export default function Records() {
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Applied At</p>
                         <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
                           <Clock className="h-3.5 w-3.5 text-slate-400" />
-                          {selectedDetailRecord.submittedAt || selectedDetailRecord.enrolledAt}
+                          {selectedDetailRecord.submittedAt ? new Date(selectedDetailRecord.submittedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown'}
                         </p>
                       </div>
+                      {selectedDetailRecord.enrolledAt && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Enrolled At</p>
+                          <p className="text-sm font-bold text-emerald-800 flex items-center gap-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                            {new Date(selectedDetailRecord.enrolledAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -788,15 +1123,19 @@ export default function Records() {
                     )}
 
                     <div className="mt-4 pt-6 border-t border-slate-100">
-                      <Button 
-                        onClick={() => {
-                          handleOpenValidate(selectedDetailRecord);
-                          setSelectedDetailRecord(null);
-                        }}
-                        className="w-full bg-slate-900 hover:bg-slate-800 rounded-2xl h-12 text-[10px] font-black uppercase tracking-[0.2em]"
-                      >
-                        {selectedDetailRecord.status === 'Enrolled' ? 'Update Student Record' : 'Process This Enrollment'}
-                      </Button>
+                      {user?.role === 'admin' ? (
+                        <Button 
+                          onClick={() => {
+                            handleOpenValidate(selectedDetailRecord);
+                            setSelectedDetailRecord(null);
+                          }}
+                          className="w-full bg-slate-900 hover:bg-slate-800 rounded-2xl h-12 text-[10px] font-black uppercase tracking-[0.2em]"
+                        >
+                          {selectedDetailRecord.status === 'Enrolled' ? 'Update Student Record' : 'Process This Enrollment'}
+                        </Button>
+                      ) : (
+                        <p className="text-[10px] font-black text-slate-400 uppercase text-center border-2 border-dashed border-slate-100 py-3 rounded-xl">Read Only View</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1429,6 +1768,175 @@ export default function Records() {
         )}
       </AnimatePresence>
       
+      {/* Professor Sections Modal */}
+      <AnimatePresence>
+        {isProfSectionsModalOpen && editingProf && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setIsProfSectionsModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Assign Sections</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Professor: {editingProf.fullName}</p>
+                </div>
+                <button onClick={() => setIsProfSectionsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                  <X className="h-5 w-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/30">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search sections..."
+                    value={profSectionSearch}
+                    onChange={(e) => setProfSectionSearch(e.target.value)}
+                    className="w-full h-11 pl-10 pr-4 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-medium"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Assigned ({profSectionAssign[editingProf.id]?.length || 0})</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(profSectionAssign[editingProf.id] || []).length > 0 ? (
+                      profSectionAssign[editingProf.id].map(s => (
+                        <div key={s} className="flex items-center gap-2 bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-bold shadow-sm">
+                          {s}
+                          <button 
+                            onClick={() => {
+                              const updated = profSectionAssign[editingProf.id].filter(sec => sec !== s);
+                              setProfSectionAssign({ ...profSectionAssign, [editingProf.id]: updated });
+                            }}
+                            className="hover:bg-white/20 rounded-lg p-1 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 border-2 border-dashed border-slate-200 rounded-3xl w-full text-center bg-white/50">
+                        <Users className="h-8 w-8 text-slate-200 mx-auto mb-2" />
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">No sections assigned</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Available Sections ({editingProf.institute} Only)</p>
+                  <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                    {sections
+                      .filter(s => {
+                        const matchesSearch = s.name.toLowerCase().includes(profSectionSearch.toLowerCase());
+                        const notAssigned = !(profSectionAssign[editingProf.id] || []).includes(s.name);
+                        
+                        // Institute filtering
+                        const instituteCourses = COURSES.filter(c => c.institute === editingProf.institute).map(c => c.id.toLowerCase());
+                        const sectionNameLower = s.name.toLowerCase();
+                        const matchesInstitute = instituteCourses.some(courseId => sectionNameLower.includes(courseId));
+                        
+                        return matchesSearch && notAssigned && matchesInstitute;
+                      })
+                      .map(s => (
+                        <button
+                          key={s.name}
+                          onClick={() => {
+                            const current = profSectionAssign[editingProf.id] || [];
+                            setProfSectionAssign({...profSectionAssign, [editingProf.id]: [...current, s.name]});
+                          }}
+                          className="flex items-center justify-between text-left px-5 py-4 rounded-[1.25rem] border border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all group"
+                        >
+                          <div>
+                            <p className="text-sm font-black text-slate-900">{s.name}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{s.yearLevel}</p>
+                          </div>
+                          <div className="h-8 w-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
+                            <UserPlus className="h-4 w-4" />
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-white border-t border-slate-100 flex gap-3 shrink-0">
+                <Button 
+                  variant="outline" 
+                  className="flex-1 rounded-2xl h-12 text-[10px] font-black uppercase tracking-[0.2em] border-2 border-slate-100 bg-white"
+                  onClick={() => setIsProfSectionsModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1 rounded-2xl h-12 text-[10px] font-black uppercase tracking-[0.2em] bg-slate-900 hover:bg-black text-white shadow-xl shadow-slate-900/20"
+                  onClick={async () => {
+                    if (editingProf.status === 'approved') {
+                      try {
+                        const sectionsArr = profSectionAssign[editingProf.id] || [];
+                        const { doc, updateDoc, setDoc } = await import('firebase/firestore');
+                        
+                        // Update teacher request
+                        await updateDoc(doc(db, 'teacher_requests', editingProf.id), { assignedSections: sectionsArr });
+                        
+                        // 1. Update user by UID (if they logged in already)
+                        if ((editingProf as any).uid) {
+                          await setDoc(doc(db, 'users', (editingProf as any).uid), { 
+                            assignedSections: sectionsArr,
+                            assignedSection: sectionsArr[0] || null 
+                          }, { merge: true });
+                        }
+                        
+                        // 2. Update user by username (original portal account)
+                        await setDoc(doc(db, 'users', editingProf.username), { 
+                          assignedSections: sectionsArr,
+                          assignedSection: sectionsArr[0] || null 
+                        }, { merge: true });
+
+                        // 3. Update admins collection for Gmail/Portal access migration
+                        const officialEmail = `${editingProf.username.toLowerCase()}@school.portal`;
+                        const emailId = officialEmail.replace(/\./g, '_');
+                        await setDoc(doc(db, 'admins', emailId), { 
+                          assignedSections: sectionsArr,
+                          assignedSection: sectionsArr[0] || null 
+                        }, { merge: true });
+
+                        if (editingProf.email) {
+                          const gmailId = editingProf.email.replace(/\./g, '_');
+                          await setDoc(doc(db, 'admins', gmailId), { 
+                            assignedSections: sectionsArr,
+                            assignedSection: sectionsArr[0] || null 
+                          }, { merge: true });
+                        }
+
+                        toast.success("Professor sections updated successfully!");
+                      } catch (e) {
+                         console.error(e);
+                         toast.error("Failed to update sections.");
+                      }
+                    }
+                    setIsProfSectionsModalOpen(false);
+                  }}
+                >
+                  {editingProf.status === 'pending' ? 'Confirm Sections' : 'Save Changes'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deleteConfirmId && (
@@ -1465,6 +1973,51 @@ export default function Records() {
                   variant="outline" 
                   className="w-full h-12 text-sm font-bold uppercase tracking-widest border-transparent hover:bg-slate-50"
                   onClick={() => setDeleteConfirmId(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Professor Delete Confirmation Modal */}
+      <AnimatePresence>
+        {profDeleteId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setProfDeleteId(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden text-center p-8"
+            >
+              <div className="h-20 w-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="h-10 w-10" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Professor?</h3>
+              <p className="text-sm text-slate-500 mb-8 leading-relaxed">
+                Are you sure you want to delete this professor account? All associated portal access and user data will be removed.
+              </p>
+              <div className="flex flex-col gap-3">
+                <Button 
+                  variant="destructive" 
+                  className="w-full h-12 text-sm font-bold uppercase tracking-widest"
+                  onClick={confirmDeleteProfessor}
+                >
+                  Delete Permanently
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full h-12 text-sm font-bold uppercase tracking-widest border-transparent hover:bg-slate-50"
+                  onClick={() => setProfDeleteId(null)}
                 >
                   Cancel
                 </Button>

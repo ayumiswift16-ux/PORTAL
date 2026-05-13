@@ -104,8 +104,11 @@ export interface User {
   username: string;
   email: string;
   name: string;
-  role: 'admin' | 'student';
+  role: 'admin' | 'student' | 'professor';
   profilePicture?: string;
+  assignedSection?: string;
+  assignedSections?: string[];
+  institute?: 'ICS' | 'IBE' | 'ITE';
 }
 
 export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
@@ -140,5 +143,16 @@ export interface Notification {
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   read: boolean;
+  createdAt: string;
+}
+
+export interface TeacherRequest {
+  id: string;
+  fullName: string;
+  institute: 'ICS' | 'IBE' | 'ITE';
+  username: string;
+  password?: string;
+  email: string;
+  status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
 }

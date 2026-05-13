@@ -9,9 +9,25 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == 'davevenzon789@gmail.com' ||
-        request.auth.token.email.matches('.*@school\\.portal') ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        request.auth.token.email.matches('admin[1-5]@school\\.portal') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email.replace('\\.', '_')))
       );
+    }
+
+    function isProfessor() {
+      return isSignedIn() && (
+        request.auth.token.email.matches('.+@school\\.portal') &&
+        !request.auth.token.email.matches('admin[1-5]@school\\.portal')
+      );
+    }
+
+    function getProfessorData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email.replace('@school\\.portal', ''))).data;
+    }
+
+    function isApprovedProfessor() {
+      return isProfessor() && getProfessorData().role == 'professor';
     }
 
     function isOwner(userId) {
@@ -28,16 +44,43 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Records and Enrollments access for Professors
+    match /enrollments/{enrollmentId} {
+      allow list: if isAdmin() || (isApprovedProfessor() && (
+        resource.data.section == getProfessorData().get('assignedSection', null) ||
+        resource.data.section in getProfessorData().get('assignedSections', [])
+      ));
+      allow get: if isAdmin() || (isApprovedProfessor() && (resource == null || 
+        resource.data.section == getProfessorData().get('assignedSection', null) ||
+        resource.data.section in getProfessorData().get('assignedSections', [])
+      )) || (isSignedIn() && (resource != null && (resource.data.studentInfo.email == request.auth.token.email || resource.data.userId == request.auth.uid)));
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isApprovedProfessor() && (
+        resource.data.section == getProfessorData().get('assignedSection', null) ||
+        resource.data.section in getProfessorData().get('assignedSections', [])
+      )) || (isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.studentInfo.email == request.auth.token.email));
+      allow delete: if isAdmin();
+    }
+
+    // Schedules access for Professors
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow write: if isAdmin() || (isApprovedProfessor() && (
+        request.resource.data.section == getProfessorData().get('assignedSection', null) ||
+        request.resource.data.section in getProfessorData().get('assignedSections', [])
+      ));
+    }
+
     // Settings
     match /settings/{docId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     // Admins collection
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if false; // Only manageable via console or specific logic
     }
 
     // Courses
@@ -48,35 +91,16 @@ service cloud.firestore {
 
     // Notifications
     match /notifications/{notifId} {
-      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow write: if isSignedIn();
+      allow read: if isSignedIn() && (isAdmin() || (resource != null && resource.data.userId == request.auth.uid));
+      allow write, create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
 
     // Users collection
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow get: if true; 
+      allow list: if isSignedIn();
       allow write: if isOwner(userId) || isAdmin();
-    }
-
-    // Enrollments
-    match /enrollments/{enrollmentId} {
-      allow list: if isSignedIn() && (
-        isAdmin() || 
-        (resource != null && (resource.data.studentInfo.email == request.auth.token.email || resource.data.userId == request.auth.uid))
-      );
-      allow get: if isSignedIn() && (
-        isAdmin() || 
-        enrollmentId == request.auth.uid ||
-        (resource != null && (resource.data.studentInfo.email == request.auth.token.email || resource.data.userId == request.auth.uid)) ||
-        (resource == null)
-      );
-      allow create: if isSignedIn();
-      allow update: if isAdmin() || (isSignedIn() && (
-        resource.data.userId == request.auth.uid || 
-        resource.data.studentInfo.email == request.auth.token.email ||
-        (resource == null)
-      ));
-      allow delete: if isAdmin();
     }
 
     // Sections
@@ -85,23 +109,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Notifications
-    match /notifications/{notifId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    // Teacher Requests
+    match /teacher_requests/{requestId} {
+      allow create: if true; 
+      allow read, write: if isAdmin();
     }
 
-    // Admins collection
-    match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if false; // Only manageable via console
-    }
-    
-    // System settings
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isAdmin();
+    // Catch-all for sub-collections or other resources
+    match /{path=**} {
+      allow read, write: if isAdmin();
     }
   }
 }

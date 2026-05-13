@@ -49,12 +49,13 @@ interface DashboardProps {
 
 export default function Dashboard({ user }: DashboardProps) {
   const navigate = useNavigate();
-  const isAdmin = user?.role === 'admin';
 
   const [stats, setStats] = useState(STATS);
   const [recentEnrollments, setRecentEnrollments] = useState<EnrollmentRecord[]>([]);
   const [enrollmentRecord, setEnrollmentRecord] = useState<EnrollmentRecord | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [professorStudents, setProfessorStudents] = useState<EnrollmentRecord[]>([]);
+  const [professorSchedules, setProfessorSchedules] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -70,7 +71,7 @@ export default function Dashboard({ user }: DashboardProps) {
 
     let dataUnsub = () => {};
 
-    if (isAdmin) {
+    if (user.role === 'admin') {
       // Use query limit to reduce data consumption
       const q = query(collection(db, 'enrollments'), orderBy('enrolledAt', 'desc'), limit(50));
       dataUnsub = onSnapshot(q, (querySnapshot) => {
@@ -92,6 +93,32 @@ export default function Dashboard({ user }: DashboardProps) {
       }, (error) => {
         console.error("Firestore Error in Admin Dashboard data:", error);
       });
+    } else if (user.role === 'professor') {
+       // Professor View: Fetch their assigned section's students and schedule
+       const professorSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
+       if (professorSections.length > 0) {
+         const qStudents = query(
+           collection(db, 'enrollments'), 
+           where('section', 'in', professorSections.slice(0, 30)), // Firestore 'in' limit
+           where('status', '==', 'Enrolled')
+         );
+         const unsubStudents = onSnapshot(qStudents, (snap) => {
+           setProfessorStudents(snap.docs.map(d => ({ ...d.data(), id: d.id }) as EnrollmentRecord));
+         });
+
+         const qSchedule = query(
+           collection(db, 'schedules'),
+           where('section', 'in', professorSections.slice(0, 30))
+         );
+         const unsubSchedule = onSnapshot(qSchedule, (snap) => {
+           setProfessorSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+         });
+
+         dataUnsub = () => {
+           unsubStudents();
+           unsubSchedule();
+         };
+       }
     } else {
       // For students, fetch by email query to handle admin-created enrollments
       const q = query(
@@ -137,7 +164,10 @@ export default function Dashboard({ user }: DashboardProps) {
       settingsUnsub();
       dataUnsub();
     };
-  }, [isAdmin, user]);
+  }, [user]);
+
+  const isAdmin = user?.role === 'admin';
+  const isProfessor = user?.role === 'professor';
 
   const enrollmentStatus = useMemo(() => {
     if (!settings?.enrollmentStartDate || !settings?.enrollmentEndDate) return 'Not Set';
@@ -237,7 +267,9 @@ export default function Dashboard({ user }: DashboardProps) {
           <p className="text-sm opacity-90">
             {isAdmin 
               ? `The ${settings?.academicYear || 'current'} enrollment is ${enrollmentStatus.toLowerCase()}.` 
-              : "You are logged in to the CdM Student Portal. Stay updated with your academics."}
+              : isProfessor
+                ? `You are logged in to the CdM Professor Portal. Managing ${user?.assignedSections?.length ? user.assignedSections.length + ' assigned sections' : 'section ' + (user?.assignedSection || 'None')}.`
+                : "You are logged in to the CdM Student Portal. Stay updated with your academics."}
           </p>
         </div>
         <div className="bg-white/10 px-6 py-4 rounded-2xl text-center backdrop-blur-md border border-white/10 relative z-10 min-w-[180px]">
@@ -468,6 +500,131 @@ export default function Dashboard({ user }: DashboardProps) {
             </div>
           </Card>
         </>
+      ) : isProfessor ? (
+        <div className="space-y-8">
+           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Professor Stats */}
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="bg-[#052e16] text-white p-6 relative overflow-hidden">
+                   <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl -mr-16 -mt-16" />
+                   <h3 className="text-sm font-bold opacity-70 uppercase tracking-widest mb-4">Assigned Sections</h3>
+                   <p className="text-4xl font-black mb-2 tracking-tighter">
+                     {user?.assignedSections?.length || (user?.assignedSection ? 1 : 0)}
+                   </p>
+                   <p className="text-xs opacity-60 font-medium">Currently handling these academic sections.</p>
+                </Card>
+
+                <Card className="p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Users className="h-5 w-5 text-emerald-600" />
+                    <h3 className="font-bold text-slate-800">Total Students</h3>
+                  </div>
+                  <p className="text-3xl font-black text-slate-900">{professorStudents.length}</p>
+                  <p className="text-xs text-slate-500 font-medium mt-1">Officially enrolled in your section.</p>
+                  <Button 
+                    className="w-full mt-6 bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
+                    variant="ghost" 
+                    onClick={() => navigate('/records')}
+                  >
+                    View Class List
+                  </Button>
+                </Card>
+              </div>
+
+              {/* Class Schedule Overview */}
+              <Card className="lg:col-span-2 border-none shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div className="text-left">
+                    <CardTitle>Today's Schedule</CardTitle>
+                    <CardDescription>Your classes for {new Date().toLocaleDateString('en-US', { weekday: 'long' })}</CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => navigate('/scheduling')}>Full Schedule</Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {professorSchedules.filter(s => s.day === new Date().toLocaleDateString('en-US', { weekday: 'long' })).length > 0 ? (
+                       professorSchedules
+                        .filter(s => s.day === new Date().toLocaleDateString('en-US', { weekday: 'long' }))
+                        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                        .map((schedule, i) => (
+                          <div key={i} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                             <div className="flex items-center gap-4">
+                               <div className="h-10 w-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm border border-slate-100">
+                                 <BookOpen className="h-5 w-5" />
+                               </div>
+                               <div>
+                                 <p className="text-sm font-bold text-slate-900">{schedule.subject}</p>
+                                 <p className="text-xs text-slate-500">{schedule.startTime} - {schedule.endTime}</p>
+                               </div>
+                             </div>
+                             <div className="text-right">
+                               <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Room</p>
+                               <p className="text-xs font-bold text-emerald-700">{schedule.room}</p>
+                             </div>
+                          </div>
+                        ))
+                    ) : (
+                      <div className="py-12 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-3xl">
+                        <Clock className="h-10 w-10 mb-2 opacity-20" />
+                        <p className="text-sm font-bold">No classes scheduled for today.</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+           </div>
+
+           {/* Class List Table */}
+           <Card className="border-none shadow-sm text-left">
+              <CardHeader className="border-b border-slate-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Class List</CardTitle>
+                    <CardDescription>Students enrolled in your assigned sections</CardDescription>
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-emerald-600 font-bold" onClick={() => navigate('/records')}>
+                    Manage Students
+                  </Button>
+                </div>
+              </CardHeader>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50">
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Student</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Number</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Year Level</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {professorStudents.map((student, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                           <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs uppercase">
+                                {student.studentInfo.firstName[0]}{student.studentInfo.lastName[0]}
+                              </div>
+                              <span className="text-sm font-bold text-slate-900">{student.studentInfo.firstName} {student.studentInfo.lastName}</span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600 font-mono italic">{student.studentId || student.studentInfo.studentId}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600">{student.yearLevel}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600">{student.studentInfo.contactNumber}</td>
+                      </tr>
+                    ))}
+                    {professorStudents.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">
+                          No students enrolled in this section yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+           </Card>
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">

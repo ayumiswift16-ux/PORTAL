@@ -273,10 +273,9 @@ export default function Enroll() {
       updatedAt: now
     };
 
-    // Only set enrolledAt if it's a new enrollment
+    // Only set submittedAt if it's a new enrollment
     if (enrollmentStatus === 'Not Started') {
       recordUpdates.submittedAt = now;
-      recordUpdates.enrolledAt = now;
     }
 
     try {
