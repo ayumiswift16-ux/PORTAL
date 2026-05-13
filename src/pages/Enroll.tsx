@@ -62,8 +62,12 @@ const INITIAL_STUDENT_INFO: StudentInfo = {
   }
 };
 
-export default function Enroll() {
-  const [user, setUser] = useState<UserType | null>(null);
+interface EnrollProps {
+  user: UserType;
+}
+
+export default function Enroll({ user: propUser }: EnrollProps) {
+  const [user, setUser] = useState<UserType | null>(propUser);
   const [currentStep, setCurrentStep] = useState(1);
   const [studentInfo, setStudentInfo] = useState<StudentInfo>(INITIAL_STUDENT_INFO);
   const [enrollmentType, setEnrollmentType] = useState<EnrollmentType>('Regular');
@@ -77,14 +81,14 @@ export default function Enroll() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('cdm_user');
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
-      
+    setUser(propUser);
+  }, [propUser]);
+
+  useEffect(() => {
+    if (user) {
       // Auto-populate email from auth - only if not admin (admin might be enrolling someone else)
-      if (parsedUser.email && !studentInfo.email && parsedUser.role !== 'admin') {
-        setStudentInfo(prev => ({ ...prev, email: parsedUser.email }));
+      if (user.email && !studentInfo.email && user.role !== 'admin') {
+        setStudentInfo(prev => ({ ...prev, email: user.email }));
       }
       
       const fetchData = async () => {
@@ -95,9 +99,9 @@ export default function Enroll() {
             setSettings(settingsSnap.data() as SystemSettings);
           }
 
-          if (parsedUser.role === 'student') {
+          if (user.role === 'student') {
             // Try fetching by username as document ID first
-            const docRef = doc(db, 'enrollments', parsedUser.username);
+            const docRef = doc(db, 'enrollments', user.username);
             const docSnap = await getDoc(docRef);
             
             if (docSnap.exists()) {
@@ -109,7 +113,7 @@ export default function Enroll() {
               setSelectedCourse(data.course);
             } else {
               // Fallback: search by userId field if username isn't doc ID
-              const q = query(collection(db, 'enrollments'), where('userId', '==', parsedUser.username), limit(1));
+              const q = query(collection(db, 'enrollments'), where('userId', '==', user.username), limit(1));
               const querySnapshot = await getDocs(q);
               if (!querySnapshot.empty) {
                 const data = querySnapshot.docs[0].data() as EnrollmentRecord;
@@ -128,7 +132,7 @@ export default function Enroll() {
       
       fetchData();
     }
-  }, []);
+  }, [user]);
 
   // Auto-calculate age from birthday
   useEffect(() => {

@@ -104,6 +104,8 @@ export default function Dashboard({ user }: DashboardProps) {
          );
          const unsubStudents = onSnapshot(qStudents, (snap) => {
            setProfessorStudents(snap.docs.map(d => ({ ...d.data(), id: d.id }) as EnrollmentRecord));
+         }, (error) => {
+           console.error("Firestore Error in Professor Dashboard students:", error);
          });
 
          const qSchedule = query(
@@ -112,6 +114,8 @@ export default function Dashboard({ user }: DashboardProps) {
          );
          const unsubSchedule = onSnapshot(qSchedule, (snap) => {
            setProfessorSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+         }, (error) => {
+           console.error("Firestore Error in Professor Dashboard schedules:", error);
          });
 
          dataUnsub = () => {

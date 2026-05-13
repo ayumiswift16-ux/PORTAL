@@ -38,17 +38,18 @@ import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, wher
 import { COURSES } from '@/src/constants';
 import { sendNotification } from '@/src/lib/notifications';
 
-export default function Records() {
-  const [user] = useState<any | null>(() => {
-    const saved = localStorage.getItem('cdm_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+interface RecordsProps {
+  user: any;
+}
+
+export default function Records({ user }: RecordsProps) {
   const [activeTab, setActiveTab] = useState<'students' | 'professors'>('students');
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
   const [teacherRequests, setTeacherRequests] = useState<TeacherRequest[]>([]);
   const [studentProfiles, setStudentProfiles] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCourse, setFilterCourse] = useState('All');
+  const [filterSection, setFilterSection] = useState('All');
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<EnrollmentRecord | null>(null);
@@ -137,18 +138,21 @@ export default function Records() {
       setEnrollments(data);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'enrollments'));
 
-    // Real-time Users (for profile pictures)
-    const qUsers = query(collection(db, 'users'), where('role', '==', 'student'));
-    const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
-      const profileMap: Record<string, string> = {};
-      snapshot.docs.forEach(doc => {
-        const userData = doc.data() as { profilePicture?: string };
-        if (userData.profilePicture) {
-          profileMap[doc.id] = userData.profilePicture;
-        }
-      });
-      setStudentProfiles(profileMap);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+    // Real-time Users (for profile pictures) - ONLY FOR ADMINS as per security rules
+    let unsubscribeUsers = () => {};
+    if (user?.role === 'admin') {
+      const qUsers = query(collection(db, 'users'), where('role', '==', 'student'));
+      unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
+        const profileMap: Record<string, string> = {};
+        snapshot.docs.forEach(doc => {
+          const userData = doc.data() as { profilePicture?: string };
+          if (userData.profilePicture) {
+            profileMap[doc.id] = userData.profilePicture;
+          }
+        });
+        setStudentProfiles(profileMap);
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+    }
 
     // Real-time Sections
     const unsubscribeSections = onSnapshot(collection(db, 'sections'), (snapshot) => {
@@ -187,9 +191,11 @@ export default function Records() {
         (enrollment.userId && enrollment.userId.toLowerCase().includes(searchTerm.toLowerCase()))
       );
       const matchesCourse = filterCourse === 'All' || enrollment.course === filterCourse;
-      return matchesSearch && matchesCourse;
+      const enrollmentSection = enrollment.section || enrollment.studentInfo.section;
+      const matchesSection = filterSection === 'All' || enrollmentSection === filterSection;
+      return matchesSearch && matchesCourse && matchesSection;
     });
-  }, [enrollments, searchTerm, filterCourse]);
+  }, [enrollments, searchTerm, filterCourse, filterSection]);
 
   const filteredProfessors = useMemo(() => {
     return teacherRequests.filter(req => 
@@ -557,20 +563,71 @@ export default function Records() {
       {activeTab === 'students' ? (
         <>
           {/* Section Counts Summary */}
-          <div className="flex flex-wrap gap-4 overflow-x-auto pb-2 custom-scrollbar">
+          <div className="flex flex-wrap gap-4 overflow-x-auto pb-4 custom-scrollbar">
+            <button
+              onClick={() => setFilterSection('All')}
+              className={cn(
+                "flex flex-col bg-white border rounded-2xl p-4 min-w-[160px] shadow-sm transition-all text-left group relative overflow-hidden",
+                filterSection === 'All' ? "border-blue-600 ring-4 ring-blue-600/10" : "border-slate-100 hover:border-blue-300 hover:shadow-md"
+              )}
+            >
+              {filterSection === 'All' && (
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-600" />
+              )}
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">View Mode</span>
+              <span className="text-base font-black text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">SHOW ALL</span>
+              <div className="flex items-center gap-1.5 mt-auto">
+                <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                <p className="text-[11px] font-bold text-slate-500 uppercase">{enrollments.length} Records</p>
+              </div>
+            </button>
+
             {Object.entries(sectionCounts).length > 0 ? (
-              Object.entries(sectionCounts).map(([section, count]) => (
-                <div key={section} className="flex flex-col bg-white border border-slate-100 rounded-2xl p-4 min-w-[140px] shadow-sm hover:border-blue-200 transition-all">
+              Object.entries(sectionCounts).sort().map(([section, count]) => (
+                <button 
+                  key={section} 
+                  onClick={() => setFilterSection(section)}
+                  className={cn(
+                    "flex flex-col bg-white border rounded-2xl p-4 min-w-[160px] shadow-sm transition-all text-left group relative overflow-hidden",
+                    filterSection === section ? "border-emerald-600 ring-4 ring-emerald-600/10" : "border-slate-100 hover:border-emerald-300 hover:shadow-md"
+                  )}
+                >
+                  {filterSection === section && (
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-600" />
+                  )}
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Section</span>
-                  <span className="text-sm font-black text-slate-900 mb-1">{section}</span>
-                  <div className="flex items-center gap-1.5">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    <p className="text-[10px] font-bold text-slate-500 uppercase">{count} Students Enrolled</p>
+                  <span className="text-base font-black text-slate-900 mb-1 group-hover:text-emerald-600 transition-colors">{section}</span>
+                  <div className="flex items-center gap-1.5 mt-auto">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <p className="text-[11px] font-bold text-slate-500 uppercase">{count} Students</p>
                   </div>
-                </div>
+                </button>
               ))
             ) : (
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">No enrolled students in any section yet</p>
+              <div className="flex items-center justify-center p-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 min-w-[200px]">
+                <p className="text-xs text-slate-400 font-medium italic">No sections with students found</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">
+                Student List {filterSection !== 'All' && <span className="text-blue-600">— {filterSection}</span>}
+              </h3>
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">
+                {filteredEnrollments.length} Result{filteredEnrollments.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {filterSection !== 'All' && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setFilterSection('All')}
+                className="text-[10px] font-bold uppercase tracking-widest h-8 text-blue-600 hover:bg-blue-50"
+              >
+                Clear Section Filter
+              </Button>
             )}
           </div>
 
@@ -732,7 +789,7 @@ export default function Records() {
                             <p className="text-lg font-bold text-slate-900">No records found</p>
                             <p className="text-sm text-slate-500">We couldn't find any students matching your criteria.</p>
                           </div>
-                          <Button variant="outline" onClick={() => { setSearchTerm(''); setFilterCourse('All'); }}>
+                          <Button variant="outline" onClick={() => { setSearchTerm(''); setFilterCourse('All'); setFilterSection('All'); }}>
                             Clear Filters
                           </Button>
                         </div>

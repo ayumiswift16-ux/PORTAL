@@ -17,7 +17,7 @@ import Scheduling from './pages/Scheduling';
 import Steps from './pages/Steps';
 import { MainLayout } from './components/layout/MainLayout';
 import { PageTransition } from './components/layout/PageTransition';
-import { auth, db } from './lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
@@ -27,8 +27,15 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeUserDoc: (() => void) | null = null;
+    let unsubscribeAdminDoc: (() => void) | null = null;
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Clean up previous listeners if auth state changes
+      if (unsubscribeUserDoc) unsubscribeUserDoc();
+      if (unsubscribeAdminDoc) unsubscribeAdminDoc();
+      unsubscribeUserDoc = null;
+      unsubscribeAdminDoc = null;
+
       if (firebaseUser) {
         const isAdmin = firebaseUser.email === 'davevenzon789@gmail.com' || 
                         !!firebaseUser.email?.match(/^admin[1-5]@school\.portal$/);
@@ -43,68 +50,44 @@ export default function App() {
         setUser(initialUser);
         localStorage.setItem('cdm_user', JSON.stringify(initialUser));
 
-        // Sync with users collection for extra data like role, profile picture, and assigned section
+        // Sync with users collection
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        unsubscribeUserDoc = onSnapshot(userDocRef, async (docSnap) => {
-          let userData = docSnap.exists() ? docSnap.data() : null;
-          
-          // Check if this user (Gmail) is an approved professor, even if they have a student doc
-          if (firebaseUser.email) {
-            const { getDoc } = await import('firebase/firestore');
-            const emailId = firebaseUser.email;
-            const adminDoc = await getDoc(doc(db, 'admins', emailId));
-            
-            if (adminDoc.exists()) {
-              const adminData = adminDoc.data();
-              const isAlreadyProfessor = userData?.role === 'professor';
-              
-              if (!isAlreadyProfessor) {
-                 // Upgrade or create professor profile
-                 const profProfile: any = {
-                    ...(userData || {}),
-                    name: adminData.name || firebaseUser.displayName || firebaseUser.email.split('@')[0],
-                    email: userData?.email || `${adminData.username || firebaseUser.email.split('@')[0]}@school.portal`,
-                    gmail: firebaseUser.email,
-                    role: 'professor',
-                    assignedSections: adminData.assignedSections || [],
-                    assignedSection: adminData.assignedSection || adminData.assignedSections?.[0] || null,
-                    updatedAt: new Date().toISOString()
-                 };
-                 await setDoc(userDocRef, profProfile, { merge: true });
-                 // The snapshot will trigger again with updated data
-                 return;
-              }
-            }
-          }
-
-          if (userData) {
+        unsubscribeUserDoc = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
             setUser(prev => {
-              const updated = prev ? { ...prev, ...userData } : { ...initialUser, ...userData };
+              const updated = { ...prev, ...userData } as User;
               localStorage.setItem('cdm_user', JSON.stringify(updated));
               return updated;
             });
-          } else {
-            // New user doc not found.
-            // If it's a portal account and not a hardcoded admin, don't auto-create as student
-            // unless it's explicitly a student email (all students use Google/Gmail)
-            const isPortalEmail = firebaseUser.email?.endsWith('@school.portal');
-            if (isAdmin) {
-              // Admin handled by exists/admins check usually, but for hardcoded:
-              setUser(initialUser);
-            } else if (isPortalEmail) {
-              // Don't auto-create for portal emails as they are professors-to-be
-              // We'll show a "Pending" or "Access Denied" state via Dashboard if they login
-              setUser({ ...initialUser, role: 'student' as any, status: 'pending_approval' } as any);
-            } else {
-              // Standard Google user (Student)
-              await setDoc(userDocRef, initialUser);
-            }
           }
-        }, (error) => {
-          console.error("Firestore Error in App.tsx user listener:", error);
-        });
+        }, (err) => console.error("User doc error:", err));
+
+        // Professor sync
+        if (firebaseUser.email) {
+          unsubscribeAdminDoc = onSnapshot(doc(db, 'admins', firebaseUser.email), (snap) => {
+            if (snap.exists()) {
+              const adminData = snap.data();
+              setUser(prev => {
+                if (!prev) return prev;
+                const updated = {
+                  ...prev,
+                  role: 'professor' as any,
+                  assignedSections: adminData.assignedSections || [],
+                  assignedSection: adminData.assignedSection || adminData.assignedSections?.[0] || null
+                };
+                localStorage.setItem('cdm_user', JSON.stringify(updated));
+                return updated;
+              });
+            }
+          }, (err) => {
+            // Silence permission denied errors for non-admins/non-profs
+            if (err.code !== 'permission-denied') {
+              console.error("Admin check error:", err);
+            }
+          });
+        }
       } else {
-        if (unsubscribeUserDoc) unsubscribeUserDoc();
         setUser(null);
         localStorage.removeItem('cdm_user');
       }
@@ -114,6 +97,7 @@ export default function App() {
     return () => {
       unsubscribe();
       if (unsubscribeUserDoc) unsubscribeUserDoc();
+      if (unsubscribeAdminDoc) unsubscribeAdminDoc();
     };
   }, []);
 
@@ -150,12 +134,12 @@ export default function App() {
               <MainLayout user={user} onLogout={handleLogout}>
                 <Routes>
                   <Route path="/dashboard" element={<PageTransition><Dashboard user={user} /></PageTransition>} />
-                  <Route path="/enroll" element={<PageTransition><Enroll /></PageTransition>} />
+                  <Route path="/enroll" element={<PageTransition><Enroll user={user} /></PageTransition>} />
                   <Route 
                     path="/records" 
                     element={
                       (user.role === 'admin' || user.role === 'professor')
-                        ? <PageTransition><Records /></PageTransition> 
+                        ? <PageTransition><Records user={user} /></PageTransition> 
                         : <Navigate to="/dashboard" replace />
                     } 
                   />
@@ -164,8 +148,8 @@ export default function App() {
                   <Route 
                     path="/scheduling" 
                     element={
-                      (user.role === 'admin' || user.role === 'professor')
-                        ? <PageTransition><Scheduling /></PageTransition> 
+                      (user.role === 'admin' || user.role === 'professor' || user.role === 'student')
+                        ? <PageTransition><Scheduling user={user} /></PageTransition> 
                         : <Navigate to="/dashboard" replace />
                     }
                   />

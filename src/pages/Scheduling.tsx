@@ -13,11 +13,11 @@ import { COURSES } from '../constants';
 
 const DAYS: Day[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-export default function Scheduling() {
-  const [user] = useState<UserType | null>(() => {
-    const saved = localStorage.getItem('cdm_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+interface SchedulingProps {
+  user: UserType;
+}
+
+export default function Scheduling({ user }: SchedulingProps) {
   const isAdmin = user?.role === 'admin';
 
   const [sections, setSections] = useState<Section[]>([]);
@@ -45,6 +45,7 @@ export default function Scheduling() {
           if (user.role === 'professor') {
             const profSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
             if (profSections.length > 0) {
+              // Only reset selectedSection if the current one is no longer assigned
               if (!selectedSection || !profSections.includes(selectedSection)) {
                 setSelectedSection(profSections[0]);
               }
