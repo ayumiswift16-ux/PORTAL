@@ -614,7 +614,7 @@ export default function Records({ user }: RecordsProps) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-            {user?.role === 'professor' ? 'Class List' : 'University Records'}
+            {user?.role === 'professor' ? 'Class List' : 'College Records'}
           </h2>
           <p className="text-slate-500 mt-1">
             {user?.role === 'professor' 
