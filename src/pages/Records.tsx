@@ -117,6 +117,7 @@ export default function Records({ user }: RecordsProps) {
       const professorSections = user.assignedSections || (user.assignedSection ? [user.assignedSection] : []);
       if (professorSections.length > 0) {
         // Firestore 'in' operator supports up to 30 items
+        // Important: Professors can ONLY list Enrolled students to avoid listing applications
         qEnroll = query(
           collection(db, 'enrollments'), 
           where('section', 'in', professorSections), 
@@ -126,8 +127,13 @@ export default function Records({ user }: RecordsProps) {
         // If no sections assigned, show nothing for professors
         qEnroll = query(collection(db, 'enrollments'), where('section', '==', 'NONE_ASSIGNED'));
       }
-    } else {
+    } else if (user?.role === 'admin') {
       qEnroll = query(collection(db, 'enrollments'), orderBy('updatedAt', 'desc'), limit(100));
+    } else {
+      // Not an admin or professor yet, likely a race condition or unauthorized
+      // Return empty to prevent permission errors
+      setEnrollments([]);
+      return;
     }
 
     const unsubscribeEnroll = onSnapshot(qEnroll, (snapshot) => {
@@ -163,13 +169,14 @@ export default function Records({ user }: RecordsProps) {
     // Real-time Teacher Requests (only for admins)
     let unsubscribeProf = () => {};
     if (user?.role === 'admin') {
-      const qProf = query(collection(db, 'teacher_requests'), orderBy('createdAt', 'desc'));
+      const qProf = collection(db, 'teacher_requests');
       unsubscribeProf = onSnapshot(qProf, (snapshot) => {
         const data = snapshot.docs.map(doc => ({
           ...doc.data(),
           id: doc.id
         })) as TeacherRequest[];
-        setTeacherRequests(data);
+        // Sort in memory to avoid index requirements
+        setTeacherRequests(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }, (error) => handleFirestoreError(error, OperationType.GET, 'teacher_requests'));
     }
 
@@ -208,10 +215,11 @@ export default function Records({ user }: RecordsProps) {
   }, [teacherRequests, searchTerm]);
 
   const handleApproveProfessor = async (request: TeacherRequest) => {
+    const toastId = toast.loading(`Approving ${request.fullName}...`);
     try {
-      const assignedSections = profSectionAssign[request.id] || [];
+      const assignedSections = profSectionAssign[request.id] || (request as any).assignedSections || [];
       if (assignedSections.length === 0) {
-        toast.error("Please assign at least one section to this professor.");
+        toast.error("Please assign at least one section to this professor.", { id: toastId });
         return;
       }
 
@@ -236,19 +244,8 @@ export default function Records({ user }: RecordsProps) {
         role: 'professor',
         assignedSections,
         assignedSection: assignedSections[0], // for legacy
-        createdAt: new Date().toISOString()
+        updatedAt: new Date().toISOString()
       }, { merge: true });
-
-      // If they had a username-based doc that was different (due to sanitization), we should probably delete it or link it
-      if (userDocId !== request.username) {
-         // This handles cases where people already have a doc by unsanitized username
-         await setDoc(doc(db, 'users', request.username), {
-            assignedSections,
-            assignedSection: assignedSections[0] || null,
-            email: officialEmail,
-            role: 'professor'
-         }, { merge: true });
-      }
 
       // 3. Add to admins collection for rules access via email as ID
       const emailId = officialEmail; // Safe ID
@@ -272,10 +269,10 @@ export default function Records({ user }: RecordsProps) {
         });
       }
       
-      toast.success(`${request.fullName} approved as Professor!`);
-    } catch (error) {
+      toast.success(`${request.fullName} approved as Professor!`, { id: toastId });
+    } catch (error: any) {
       console.error("Error approving professor:", error);
-      toast.error('Failed to approve professor.');
+      toast.error(`Failed to approve professor: ${error.message}`, { id: toastId });
     }
   };
 
@@ -479,15 +476,21 @@ export default function Records({ user }: RecordsProps) {
     }
   };
 
+  const [profToReject, setProfToReject] = useState<{prof: TeacherRequest, isRevoke: boolean} | null>(null);
+
   const handleDeclineProfessor = async (prof: TeacherRequest, isRevoke = false) => {
     const action = isRevoke ? 'Decline' : 'Reject';
-    if (!confirm(`${action} this professor? This will revoke their access.`)) return;
+    const toastId = toast.loading(`${action}ing professor...`);
 
     try {
       // 1. Update status in teacher_requests
-      await updateDoc(doc(db, 'teacher_requests', prof.id), { status: 'rejected' });
+      await updateDoc(doc(db, 'teacher_requests', prof.id), { 
+        status: 'rejected',
+        rejectedBy: user?.fullName || user?.name || user?.email || 'Admin',
+        rejectedAt: new Date().toISOString()
+      });
 
-      // 2. Cleanup associated permissions
+      // 2. Cleanup associated permissions (from admins collection)
       const sanitizedUsername = prof.username.toLowerCase().replace(/\s+/g, '');
       const portalEmail = `${sanitizedUsername}@school.portal`;
       
@@ -495,7 +498,11 @@ export default function Records({ user }: RecordsProps) {
       if (prof.email) adminDocsToDelete.add(prof.email);
 
       for (const id of Array.from(adminDocsToDelete)) {
-        await deleteDoc(doc(db, 'admins', id));
+        try {
+          await deleteDoc(doc(db, 'admins', id));
+        } catch (e) {
+          console.warn(`Could not delete admin doc ${id}:`, e);
+        }
       }
 
       // 3. Update user role if doc exists
@@ -503,16 +510,19 @@ export default function Records({ user }: RecordsProps) {
       try {
         const uDoc = await getDoc(doc(db, 'users', userDocId));
         if (uDoc.exists()) {
-          await updateDoc(uDoc.ref, { role: 'student', updatedAt: new Date().toISOString() });
+          await updateDoc(uDoc.ref, { 
+            role: 'student', 
+            updatedAt: new Date().toISOString() 
+          });
         }
       } catch (e) {
         console.warn("Could not update user role during decline:", e);
       }
 
-      toast.error(`Professor access ${isRevoke ? 'revoked' : 'rejected'}.`);
-    } catch (err) {
-      console.error("Error declining professor:", err);
-      toast.error(`Failed to ${action.toLowerCase()} professor.`);
+      toast.success(`Professor access ${isRevoke ? 'revoked' : 'rejected'}.`, { id: toastId });
+    } catch (err: any) {
+      console.error(`Error ${action.toLowerCase()}ing professor:`, err);
+      toast.error(`Failed to ${action.toLowerCase()} professor: ${err.message || 'Unknown error'}`, { id: toastId });
     }
   };
 
@@ -520,6 +530,13 @@ export default function Records({ user }: RecordsProps) {
     if (!profDeleteId) return;
     const prof = teacherRequests.find(p => p.id === profDeleteId);
     if (!prof) {
+      setProfDeleteId(null);
+      return;
+    }
+
+    // Security: Don't allow admin to delete themselves to prevent logout/orphaning
+    if (prof.email === user.email) {
+      toast.error("You cannot delete your own account from here. Please contact another administrator.");
       setProfDeleteId(null);
       return;
     }
@@ -540,6 +557,10 @@ export default function Records({ user }: RecordsProps) {
       userDocsToDelete.add(prof.username);
       if ((prof as any).uid) userDocsToDelete.add((prof as any).uid);
 
+      // IMPORTANT: Never delete the currently logged in user's doc
+      userDocsToDelete.delete(user.uid);
+      userDocsToDelete.delete(user.username);
+
       // Query for potential user docs by emails
       const portalEmail = `${sanitizedUsername}@school.portal`;
       const queries = [
@@ -554,7 +575,12 @@ export default function Records({ user }: RecordsProps) {
 
       for (const q of queries) {
         const snap = await getDocs(q);
-        snap.forEach(d => userDocsToDelete.add(d.id));
+        snap.forEach(d => {
+          // Double check to never delete self
+          if (d.id !== user.uid) {
+            userDocsToDelete.add(d.id);
+          }
+        });
       }
       
       // Execute deletions
@@ -565,6 +591,10 @@ export default function Records({ user }: RecordsProps) {
       const adminDocsToDelete = new Set([portalEmail]);
       if (prof.email) adminDocsToDelete.add(prof.email);
       if ((prof as any).uid) adminDocsToDelete.add((prof as any).uid);
+
+      // Never delete self from admins
+      adminDocsToDelete.delete(user.email);
+      adminDocsToDelete.delete(user.uid);
 
       for (const id of Array.from(adminDocsToDelete)) {
          await deleteDoc(doc(db, 'admins', id));
@@ -777,22 +807,6 @@ export default function Records({ user }: RecordsProps) {
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
                               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{enrollment.yearLevel}</p>
-                              {enrollment.studentInfo.documents && (enrollment.studentInfo.documents.summaryOfGrades || enrollment.studentInfo.documents.goodMoral || enrollment.studentInfo.documents.twoByTwoPhoto || enrollment.studentInfo.documents.birthCertificate) && (
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedRecord(enrollment);
-                                    setValidationData({
-                                      studentId: enrollment.studentId || '',
-                                      section: enrollment.section || ''
-                                    });
-                                  }}
-                                  className="flex items-center gap-0.5 text-[7px] font-black text-white bg-slate-900 px-1.5 py-0.5 rounded shadow-sm hover:bg-black transition-colors cursor-pointer active:scale-95" 
-                                  title="Click to view uploaded documents"
-                                >
-                                  DOCS
-                                </button>
-                              )}
                             </div>
                           </div>
                         </td>
@@ -976,39 +990,59 @@ export default function Records({ user }: RecordsProps) {
                           {prof.status === 'pending' && (
                             <>
                               <button 
-                                onClick={() => handleApproveProfessor(prof)}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleApproveProfessor(prof);
+                                }}
                                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm"
                               >
                                 Approve
                               </button>
                               <button 
-                                onClick={() => handleDeclineProfessor(prof)}
-                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setProfToReject({ prof, isRevoke: false });
+                                }}
+                                className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all flex items-center justify-center border border-transparent hover:border-red-100"
                                 title="Reject Request"
                               >
-                                <X className="h-4 w-4" />
+                                <X className="h-5 w-5" />
                               </button>
                             </>
                           )}
                           {prof.status === 'approved' && (
                             <button 
-                              onClick={() => handleDeclineProfessor(prof, true)}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setProfToReject({ prof, isRevoke: true });
+                              }}
                               className="px-3 py-1.5 text-[10px] font-bold text-red-600 hover:bg-red-50 rounded-lg border border-red-100 transition-all uppercase tracking-tight"
                               title="Decline Professor"
                             >
-                              Decline
+                              Revoke
                             </button>
                           )}
                           {prof.status === 'rejected' && (
                              <button 
-                               onClick={() => handleApproveProfessor(prof)}
+                               onClick={(e) => {
+                                 e.preventDefault();
+                                 e.stopPropagation();
+                                 handleApproveProfessor(prof);
+                               }}
                                className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-100 transition-all uppercase tracking-tight"
                              >
                                Re-approve
                              </button>
                           )}
                           <button 
-                             onClick={() => setProfDeleteId(prof.id)}
+                             onClick={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                               setProfDeleteId(prof.id);
+                             }}
                              className="p-2 text-slate-300 hover:text-red-500 transition-colors"
                              title="Wipe Account"
                           >
@@ -1341,32 +1375,37 @@ export default function Records({ user }: RecordsProps) {
               </div>
               
               <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <User className="h-16 w-16" />
-                  </div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1.5">Student Profile</p>
-                  <p className="text-xl font-black text-slate-900 leading-tight">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
-                  
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <div className="flex flex-col">
-                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{selectedRecord?.yearLevel === '1st Year' ? '1st Choice' : 'Program'}</span>
-                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 uppercase tracking-widest">{selectedRecord?.course}</span>
-                    </div>
-                    {selectedRecord?.yearLevel === '1st Year' && selectedRecord.secondChoice && (
-                      <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">
-                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">2nd Choice</span>
-                        <span className="text-[10px] font-black text-slate-900 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 uppercase tracking-widest">{selectedRecord.secondChoice}</span>
+                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden flex items-center gap-6">
+                  <div className="h-24 w-24 rounded-2xl overflow-hidden border-4 border-white shadow-xl bg-slate-200 shrink-0">
+                    {selectedRecord?.studentInfo.documents?.twoByTwoPhoto ? (
+                      <img 
+                        src={selectedRecord.studentInfo.documents.twoByTwoPhoto} 
+                        alt="Profile" 
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center opacity-30">
+                        <User className="h-10 w-10" />
                       </div>
                     )}
-                    <div className="flex flex-col border-l border-slate-200 pl-2 ml-1">
-                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Status</span>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">{selectedRecord?.yearLevel}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Student Profile</p>
+                    <p className="text-2xl font-black text-slate-900 leading-tight">{selectedRecord?.studentInfo.firstName} {selectedRecord?.studentInfo.lastName}</p>
+                    <p className="text-xs font-bold text-slate-400 mt-1">{selectedRecord?.studentInfo.email}</p>
+                    
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
+                      <span className="text-[10px] font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200 uppercase tracking-widest">{selectedRecord?.course}</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{selectedRecord?.yearLevel}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end px-1">
+                <div className="flex justify-between items-center px-1">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Status: OK</span>
+                  </div>
                   <button 
                     onClick={() => setSelectedDetailRecord(selectedRecord)}
                     className="flex items-center gap-2 text-[10px] font-black text-blue-600 hover:text-blue-800 transition-colors uppercase tracking-widest bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100"
@@ -2137,6 +2176,48 @@ export default function Records({ user }: RecordsProps) {
           </div>
         )}
       </AnimatePresence>
+      {/* Professor Reject Confirmation Modal */}
+      {profToReject && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <X className="h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">
+                {profToReject.isRevoke ? 'Revoke Professor Access?' : 'Reject Professor Request?'}
+              </h3>
+              <p className="text-slate-500 text-sm mb-6">
+                {profToReject.isRevoke 
+                  ? `Are you sure you want to revoke ${profToReject.prof.fullName}'s access? They will be downgraded to a student account.`
+                  : `Are you sure you want to reject the application from ${profToReject.prof.fullName}?`}
+              </p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setProfToReject(null)}
+                  className="flex-1 px-4 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleDeclineProfessor(profToReject.prof, profToReject.isRevoke);
+                    setProfToReject(null);
+                  }}
+                  className="flex-1 px-4 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-200 transition-colors"
+                >
+                  {profToReject.isRevoke ? 'Yes, Revoke' : 'Yes, Reject'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

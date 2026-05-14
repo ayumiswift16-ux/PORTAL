@@ -101,6 +101,7 @@ export interface PaymentDetails {
 }
 
 export interface User {
+  uid: string;
   username: string;
   email: string;
   name: string;
@@ -153,6 +154,9 @@ export interface TeacherRequest {
   username: string;
   password?: string;
   email: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'deleted';
+  rejectedBy?: string;
+  rejectedAt?: string;
+  deletedAt?: string;
   createdAt: string;
 }

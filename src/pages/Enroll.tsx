@@ -100,9 +100,14 @@ export default function Enroll({ user: propUser }: EnrollProps) {
           }
 
           if (user.role === 'student') {
-            // Try fetching by username as document ID first
-            const docRef = doc(db, 'enrollments', user.username);
-            const docSnap = await getDoc(docRef);
+            // Try fetching by UID as document ID first
+            const docRef = doc(db, 'enrollments', user.uid);
+            let docSnap = await getDoc(docRef);
+            
+            // Try fallback to username if UID not found
+            if (!docSnap.exists() && user.username !== user.uid) {
+              docSnap = await getDoc(doc(db, 'enrollments', user.username));
+            }
             
             if (docSnap.exists()) {
               const data = docSnap.data() as EnrollmentRecord;
@@ -113,8 +118,14 @@ export default function Enroll({ user: propUser }: EnrollProps) {
               setSelectedCourse(data.course);
             } else {
               // Fallback: search by userId field if username isn't doc ID
-              const q = query(collection(db, 'enrollments'), where('userId', '==', user.username), limit(1));
-              const querySnapshot = await getDocs(q);
+              const q = query(collection(db, 'enrollments'), where('userId', '==', user.uid), limit(1));
+              let querySnapshot = await getDocs(q);
+              
+              if (querySnapshot.empty && user.username !== user.uid) {
+                const q2 = query(collection(db, 'enrollments'), where('userId', '==', user.username), limit(1));
+                querySnapshot = await getDocs(q2);
+              }
+
               if (!querySnapshot.empty) {
                 const data = querySnapshot.docs[0].data() as EnrollmentRecord;
                 setEnrollmentRecord(data);
@@ -264,7 +275,7 @@ export default function Enroll({ user: propUser }: EnrollProps) {
     
     // Construct the enrollment record
     const recordUpdates: Partial<EnrollmentRecord> = {
-      userId: user?.username,
+      userId: user?.uid,
       studentInfo: {
         ...studentInfo,
         studentId: studentInfo.studentId || '' 
@@ -308,7 +319,7 @@ export default function Enroll({ user: propUser }: EnrollProps) {
       toast.success(enrollmentStatus === 'Validating' ? 'Information updated successfully!' : 'Enrollment submitted successfully!');
     } catch (error) {
       setIsSubmitting(false);
-      handleFirestoreError(error, OperationType.WRITE, `enrollments/${user?.username}`);
+      handleFirestoreError(error, OperationType.WRITE, `enrollments/${user?.uid}`);
     }
   };
 

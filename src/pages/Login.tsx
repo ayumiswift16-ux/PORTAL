@@ -8,8 +8,20 @@ import { Card, CardContent } from '@/src/components/ui/Card';
 import toast from 'react-hot-toast';
 import { User as UserType } from '../types';
 import { cn } from '@/src/utils/cn';
-import { auth } from '../lib/firebase';
+import { auth, db, OperationType, handleFirestoreError } from '../lib/firebase';
 import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword } from 'firebase/auth';
+import { 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  getDoc, 
+  doc, 
+  limit, 
+  setDoc,
+  addDoc
+} from 'firebase/firestore';
+import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 
 interface LoginProps {
   onLogin: (user: UserType) => void;
@@ -33,21 +45,6 @@ export default function Login({ onLogin }: LoginProps) {
   });
   const navigate = useNavigate();
 
-  const handleFirestoreError = (error: any, operationType: string, path: string) => {
-    const errInfo = {
-      error: error.message || String(error),
-      operationType,
-      path,
-      authInfo: {
-        userId: auth.currentUser?.uid,
-        email: auth.currentUser?.email,
-        emailVerified: auth.currentUser?.emailVerified,
-      }
-    };
-    console.error(`Firestore Error [${operationType}] on ${path}:`, JSON.stringify(errInfo));
-    return new Error(JSON.stringify(errInfo));
-  };
-
   const handleSendVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profData.email) {
@@ -57,33 +54,44 @@ export default function Login({ onLogin }: LoginProps) {
     
     setLoading(true);
     try {
-      const { query, where, collection, getDocs, limit, getDoc, doc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-
       // Check for pending requests with this email
       const emailId = profData.email;
-      const existingReq = await getDoc(doc(db, 'teacher_requests', emailId));
       
+      // We wrap these in try-catch because non-signed-in users might not have permission to read admins
+      let existingReq = null;
+      let existingAdmin = null;
+      
+      try {
+        existingReq = await getDoc(doc(db, 'teacher_requests', emailId));
+      } catch (e) { console.warn("Could not check teacher_requests (unauthorized)"); }
+      
+      try {
+        existingAdmin = await getDoc(doc(db, 'admins', emailId));
+      } catch (e) {
+        // If we can't check admins, we'll try a different way later or just proceed
+        // Usually admins collection read is restricted.
+      }
+      
+      if (existingAdmin?.exists()) {
+        toast.error("This email is already registered to an approved professor account.");
+        setShowProfessorForm(false);
+        return;
+      }
+
       if (existingReq?.exists()) {
         const data = existingReq.data();
         if (data.status === 'pending') {
           toast.error("An account request for this email is already pending approval.");
           return;
-        } else if (data.status === 'approved') {
-          toast.error("This email already has an approved account. Please log in.");
-          setShowProfessorForm(false);
-          return;
-        } else if (data.status === 'deleted') {
-          toast.error("This email has been restricted and cannot be used for a new application.");
-          return;
         }
+        // If status is 'deleted' or 'rejected', we allow re-registration
       }
 
-      // Check if email already exists in users (as gmail or email)
-      const gmailQuery = query(collection(db, 'users'), where('gmail', '==', profData.email), limit(1));
+      // Check if email already exists in users AS A PROFESSOR
+      const gmailQuery = query(collection(db, 'users'), where('gmail', '==', profData.email), where('role', '==', 'professor'), limit(1));
       const gmailSnap = await getDocs(gmailQuery);
       if (!gmailSnap.empty) {
-        toast.error("This email is already registered to an existing account.");
+        toast.error("This email is already registered as an active professor.");
         return;
       }
 
@@ -164,10 +172,6 @@ export default function Login({ onLogin }: LoginProps) {
 
     setLoading(true);
     try {
-      const { collection, addDoc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-      const { createUserWithEmailAndPassword, signOut } = await import('firebase/auth');
-      
       // 1. Create the Auth account immediately with portal email
       // This ensures they can login later with signInWithEmailAndPassword
       // Sanitize username to prevent invalid emails (remove spaces)
@@ -186,7 +190,8 @@ export default function Login({ onLogin }: LoginProps) {
         }
         // If user already exists, it's fine, maybe they are resubmitting
         if (authError.code === 'auth/email-already-in-use') {
-          // This is tricky if we don't have the UID. But we'll try to handle it in approval if UID is missing.
+          // Inform the user that they must use their previous password if they are re-applying
+          toast.success("Account detected. Your existing portal credentials will be used upon approval.", { duration: 6000 });
         } else {
           throw authError;
         }
@@ -194,7 +199,6 @@ export default function Login({ onLogin }: LoginProps) {
 
       const emailId = profData.email;
       try {
-        const { doc, setDoc } = await import('firebase/firestore');
         await setDoc(doc(db, 'teacher_requests', emailId), {
           ...profData,
           username: sanitizedUsername, // Use sanitized username
@@ -203,7 +207,7 @@ export default function Login({ onLogin }: LoginProps) {
           createdAt: new Date().toISOString()
         });
       } catch (err: any) {
-        throw handleFirestoreError(err, 'create', 'teacher_requests');
+        throw handleFirestoreError(err, OperationType.CREATE, 'teacher_requests');
       }
       
       toast.success('Request submitted! Please wait for admin approval.');
@@ -231,61 +235,50 @@ export default function Login({ onLogin }: LoginProps) {
       const user = result.user;
 
       if (user.email) {
-        const { getDoc, doc, collection, query, where, getDocs, limit } = await import('firebase/firestore');
-        const { db, OperationType, handleFirestoreError } = await import('../lib/firebase');
- 
         // Check if this Gmail is associated with a professor request (any status)
         const emailId = user.email;
-        let snap;
+        let snap = null;
         try {
+          // Everyone can 'get' their own or any teacher_request status by email as ID
           snap = await getDoc(doc(db, 'teacher_requests', emailId));
         } catch (err: any) {
-          if (err.code !== 'permission-denied') {
-             handleFirestoreError(err, OperationType.GET, `teacher_requests/${emailId}`);
-          }
+          console.warn("Permission issue checking teacher_requests status:", err.message);
         }
  
         if (snap && snap.exists()) {
           const reqData = snap.data();
           if (reqData.status === 'pending') {
             await auth.signOut();
-            toast.error("Your professor application is still pending. Please wait for approval.");
+            toast.error("Account Pending: Your application is still awaiting administrator approval.");
+            setLoading(false);
+            return;
+          } else if (reqData.status === 'rejected' || reqData.status === 'deleted') {
+            await auth.signOut();
+            const reason = reqData.status === 'rejected' && reqData.rejectedBy 
+              ? `rejected by ${reqData.rejectedBy}` 
+              : reqData.status;
+            toast.error(`Access Denied: Your account has been ${reason}.`);
             setLoading(false);
             return;
           } else if (reqData.status === 'approved') {
-            await auth.signOut();
-            toast.error(`Please use your Portal Account (${reqData.username}@school.portal) to login.`);
-            setLoading(false);
-            return;
-          } else if (reqData.status === 'rejected') {
-            await auth.signOut();
-            toast.error("Your professor application was declined. Please contact the administrator.");
-            setLoading(false);
-            return;
-          } else if (reqData.status === 'deleted') {
-            await auth.signOut();
-            toast.error("This professor account has been permanently deleted by the administrator.");
-            setLoading(false);
-            return;
+             // Only block if they are actually in the admins collection as an active professor
+             let isAdminActive = false;
+             try {
+               const adminDoc = await getDoc(doc(db, 'admins', emailId));
+               if (adminDoc.exists()) isAdminActive = true;
+             } catch (e) {
+               // If we can't check admins, we assume they are approved and should use portal
+               isAdminActive = true; 
+             }
+
+             if (isAdminActive) {
+                await auth.signOut();
+                toast.error(`Please use your Portal Account (${reqData.username}@school.portal) to login.`);
+                setLoading(false);
+                return;
+             }
           }
-        } else {
-          // Check if they have a professor role in users or admins even if request is gone
-          try {
-            const [adminCheck, userCheck] = await Promise.all([
-              getDoc(doc(db, 'admins', emailId)),
-              getDoc(doc(db, 'users', user.uid))
-            ]);
-            
-            if ((adminCheck.exists() && adminCheck.data().role === 'professor') || 
-                (userCheck.exists() && (userCheck.data() as any).role === 'professor')) {
-               await auth.signOut();
-               toast.error("Account access revoked. Please contact the administrator.");
-               setLoading(false);
-               return;
-            }
-          } catch (err: any) {
-            // Silently handle if profile fetch fails
-          }
+          // If status is 'deleted', we let them in as a student (Request 5)
         }
       }
 
@@ -305,28 +298,35 @@ export default function Login({ onLogin }: LoginProps) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username || !password) {
+      toast.error("Please enter your credentials.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const sanitizedInput = username.toLowerCase().replace(/\s+/g, '');
-      const email = `${sanitizedInput}@school.portal`;
+      const sanitizedUsername = username.toLowerCase().replace(/\s+/g, '').trim();
+      const portalEmail = sanitizedUsername.includes('@') ? sanitizedUsername : `${sanitizedUsername}@school.portal`;
       
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const fbUser = userCredential.user;
+      // 1. Perform actual authentication first
+      const userCredential = await signInWithEmailAndPassword(auth, portalEmail, password);
+      const fbUser = userCredential.user;
 
-        const { doc, getDoc, collection, query, where, getDocs, limit } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
-
-        // If it's a portal email, check if it's a professor and if they are approved
-        if (email.endsWith('@school.portal') && !email.startsWith('admin')) {
-          // Check teacher_requests for this username
-          const q = query(collection(db, 'teacher_requests'), where('username', '==', sanitizedInput));
+      // 2. Post-login check for professor status
+      // Students don't use portalEmail so they won't reach here normally via this branch
+      if (portalEmail.endsWith('@school.portal') && !portalEmail.startsWith('admin')) {
+        try {
+          const { collection, query, where, getDocs, limit } = await import('firebase/firestore');
+          const { db } = await import('../lib/firebase');
+          
+          // Check the teacher request status for this username
+          const q = query(collection(db, 'teacher_requests'), where('username', '==', sanitizedUsername), limit(1));
           const reqSnap = await getDocs(q);
           
           if (reqSnap.empty) {
             await auth.signOut();
-            toast.error("Account not found. This professor account may have been deleted.");
+            toast.error("Access Denied: Professor record not found.");
             setLoading(false);
             return;
           }
@@ -334,86 +334,75 @@ export default function Login({ onLogin }: LoginProps) {
           const reqData = reqSnap.docs[0].data();
           if (reqData.status === 'pending') {
             await auth.signOut();
-            toast.error("Your account is still pending approval.");
+            toast.error("Account Pending: Your application is still awaiting administrator approval.");
             setLoading(false);
             return;
-          } else if (reqData.status === 'rejected') {
+          } else if (reqData.status === 'rejected' || reqData.status === 'deleted') {
             await auth.signOut();
-            toast.error("Your account request has been declined.");
+            const reason = reqData.status === 'rejected' && reqData.rejectedBy 
+              ? `rejected by ${reqData.rejectedBy}` 
+              : reqData.status;
+            toast.error(`Access Denied: Your account has been ${reason}.`);
             setLoading(false);
             return;
-          } else if (reqData.status === 'deleted') {
-            await auth.signOut();
-            toast.error("This account has been permanently deleted by the administrator.");
-            setLoading(false);
-            return;
           }
-        }
-        
-        // Try to get user doc
-        let userDoc;
-        try {
-          // 1. Try UID (Best way usually)
-          userDoc = await getDoc(doc(db, 'users', fbUser.uid));
-          
-          // 2. Try Username (Fallback for older accounts or if UID lookup fails)
-          if (!userDoc?.exists()) {
-             // We can check local storage or another field if needed, but username as ID was common
-             userDoc = await getDoc(doc(db, 'users', sanitizedInput));
+
+          // Ensure they are actually in the admins/users matching the approved status
+          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+          if (!userDoc.exists() || userDoc.data().role !== 'professor') {
+             // Maybe it was just approved and sync hasn't Finished? 
+             // Give it a moment or just notify.
+             console.warn("User doc role mismatch after login");
           }
-          
-          // 3. Try Gmail lookup if it's a professor (professors have gmail stored)
-          if (!userDoc?.exists()) {
-            const q = query(collection(db, 'users'), where('gmail', '==', fbUser.email), limit(1));
-            const snap = await getDocs(q);
-            if (!snap.empty) userDoc = snap.docs[0];
-          }
-          
-          // 4. Try portal email lookup
-          if (!userDoc?.exists()) {
-            const q = query(collection(db, 'users'), where('email', '==', email), limit(1));
-            const snap = await getDocs(q);
-            if (!snap.empty) userDoc = snap.docs[0];
-          }
-        } catch (err: any) {
-          console.warn("User doc fetch error (skipping for now):", err);
-        }
-        
-        if (userDoc?.exists()) {
-          const userData = userDoc.data();
-          
-          // CRITICAL: Double check professor status if role is professor
-          if (userData.role === 'professor') {
-            const { getDoc, doc } = await import('firebase/firestore');
-            const emailId = userData.gmail || userData.email;
-            if (emailId) {
-              const reqSnap = await getDoc(doc(db, 'teacher_requests', emailId));
-              if (!reqSnap.exists() || reqSnap.data().status !== 'approved') {
-                await auth.signOut();
-                toast.error("Professor account access has been revoked.");
-                setLoading(false);
-                return;
-              }
-            }
-          }
-          
-          toast.success(`Welcome back, Professor ${userData.fullName || userData.name}!`);
-        } else {
-          toast.success(`Welcome back, ${username}!`);
-        }
-        
-        navigate('/dashboard');
-      } catch (authError: any) {
-        console.error("Auth error:", authError);
-        if (authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential' || authError.code === 'auth/invalid-email') {
-           toast.error("Invalid credentials or account not found.");
-        } else {
-           toast.error("Login failed. Please check your credentials.");
+        } catch (dbErr) {
+          console.error("Post-login role verification failed:", dbErr);
+          // If we can't verify, we should probably sign out for security
+          await auth.signOut();
+          toast.error("Security Check Failed: Could not verify account status.");
+          setLoading(false);
+          return;
         }
       }
-    } catch (error: any) {
-      console.error("Login error:", error);
-      toast.error('Login failed. Please try again.');
+      
+      // 3. Try to get user doc for welcome message
+      let userDoc;
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+        if (!userDoc?.exists()) {
+           userDoc = await getDoc(doc(db, 'users', sanitizedUsername));
+        }
+      } catch (err: any) {
+        console.warn("User doc fetch error:", err);
+      }
+      
+      if (userDoc?.exists()) {
+        const userData = userDoc.data();
+        toast.success(`Welcome back, ${userData.fullName || userData.name}!`);
+      } else {
+        toast.success(`Welcome back!`);
+      }
+      
+      navigate('/dashboard');
+    } catch (authError: any) {
+      console.error("Auth error details:", authError);
+      
+      // Map common Firebase errors to user-friendly messages
+      const errorCode = authError.code;
+      let errorMessage = "Login failed. Please check your credentials.";
+      
+      if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
+        errorMessage = "Incorrect username or password. Please try again.";
+      } else if (errorCode === 'auth/too-many-requests') {
+        errorMessage = "Too many failed attempts. Please try again later or reset your password.";
+      } else if (errorCode === 'auth/user-disabled') {
+        errorMessage = "This account has been disabled. Please contact support.";
+      } else if (errorCode === 'auth/invalid-email') {
+        errorMessage = "Invalid login format. Please enter a valid username.";
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

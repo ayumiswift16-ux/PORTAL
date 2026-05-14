@@ -41,6 +41,7 @@ export default function App() {
                         !!firebaseUser.email?.match(/^admin[1-5]@school\.portal$/);
         
         const initialUser: User = {
+          uid: firebaseUser.uid,
           username: firebaseUser.uid,
           email: firebaseUser.email || '',
           name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
@@ -66,12 +67,12 @@ export default function App() {
             // For new users, it's normal to not have a doc yet.
             if (!isAdmin) {
                setUser(prev => {
-                 if (prev?.role === 'student' && docSnap.id === firebaseUser.uid) {
-                    // Check if they have specific fields that only exist after registration
-                    // If they are just a "new" user, don't log out.
-                 }
-                 return prev;
-               });
+               if (prev?.role === 'student') {
+                  // Check if they have specific fields that only exist after registration
+                  // If they are just a "new" user, don't log out.
+               }
+               return prev;
+             });
             }
           }
         }, (err) => console.error("User doc error:", err));
@@ -88,6 +89,8 @@ export default function App() {
                   
                   setUser(prev => {
                     if (!prev) return prev;
+                    if (prev.role === 'admin') return prev; // Never downgrade a hardcoded admin
+                    
                     const updated = {
                       ...prev,
                       role: 'professor' as any,
@@ -99,13 +102,18 @@ export default function App() {
                   });
                   
                   // Check master request status for deletion (REAL-TIME)
-                  const emailToCheck = adminData.email || (id.includes('@') ? id : null);
+                  const emailToCheck = adminData.email || (id.includes('@') ? id : firebaseUser.email);
                   if (emailToCheck) {
                     const reqRef = doc(db, 'teacher_requests', emailToCheck);
                     const unsubReq = onSnapshot(reqRef, (reqSnap) => {
-                      if (reqSnap.exists() && reqSnap.data().status === 'deleted') {
-                        console.warn("Professor account deleted by admin, signing out...");
-                        signOut(auth);
+                      if (reqSnap.exists()) {
+                        const reqData = reqSnap.data();
+                        // Only sign out if the status is deleted AND it matches the current user's email
+                        // This prevents cross-account logout if listeners get mixed up
+                        if (reqData.status === 'deleted' && reqData.email === firebaseUser.email) {
+                          console.warn("Professor account deleted by admin, signing out...");
+                          signOut(auth);
+                        }
                       }
                     });
                     (window as any)._teacherReqUnsubs = (window as any)._teacherReqUnsubs || [];

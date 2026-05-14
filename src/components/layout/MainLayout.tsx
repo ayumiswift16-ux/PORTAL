@@ -50,7 +50,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
 
     const q = query(
       collection(db, 'enrollments'),
-      where('userId', '==', user.username),
+      where('userId', '==', user.uid),
       limit(1)
     );
 
@@ -255,7 +255,7 @@ export function MainLayout({ children, user, onLogout }: MainLayoutProps) {
                         reader.onloadend = async () => {
                           const base64 = reader.result as string;
                           try {
-                            await updateDoc(doc(db, 'users', user.username), { profilePicture: base64 });
+                            await updateDoc(doc(db, 'users', user.uid), { profilePicture: base64 });
                             toast.success("Profile picture updated!");
                           } catch (err) {
                             toast.error("Failed to update picture");

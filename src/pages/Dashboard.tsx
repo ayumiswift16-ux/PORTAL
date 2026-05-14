@@ -139,19 +139,25 @@ export default function Dashboard({ user }: DashboardProps) {
 
           // Auto-link: if the enrollment record doesn't have the correct userId (UID)
           // update it so notifications and future fetches work correctly
-          if (enrollData.userId !== user.username) {
+          if (enrollData.userId !== user.uid) {
             import('firebase/firestore').then(({ doc, updateDoc }) => {
               updateDoc(doc(db, 'enrollments', enrollDoc.id), {
-                userId: user.username
+                userId: user.uid
               }).catch(err => console.error("Error auto-linking enrollment:", err));
             });
           }
         } else {
           // Fallback: try direct fetch by username/UID (original behavior)
-          getDoc(doc(db, 'enrollments', user.username)).then((docSnap) => {
+          getDoc(doc(db, 'enrollments', user.uid)).then((docSnap) => {
             if (docSnap.exists()) {
               setEnrollmentRecord({ ...docSnap.data(), id: docSnap.id } as EnrollmentRecord);
             } else {
+              // Try username as well for legacy support
+              if (user.username !== user.uid) {
+                getDoc(doc(db, 'enrollments', user.username)).then(uSnap => {
+                   if (uSnap.exists()) setEnrollmentRecord({ ...uSnap.data(), id: uSnap.id } as EnrollmentRecord);
+                }).catch(() => {});
+              }
               setEnrollmentRecord(null);
             }
           }).catch(err => {
@@ -163,7 +169,9 @@ export default function Dashboard({ user }: DashboardProps) {
           });
         }
       }, (error) => {
-        console.error("Firestore Error in Student Dashboard data fetch:", error);
+        import('@/src/lib/firebase').then(({ handleFirestoreError, OperationType }) => {
+          handleFirestoreError(error, OperationType.LIST, 'enrollments');
+        }).catch(() => console.error("Firestore Error in Student Dashboard data fetch:", error));
       });
     }
 
@@ -696,7 +704,7 @@ export default function Dashboard({ user }: DashboardProps) {
                         (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-300"
                       )}>Assessment</span>
                       <Clock className={cn("h-6 w-6 mb-4", (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-200")} />
-                      {enrollmentRecord?.examDate && (enrollmentRecord.yearLevel === '1st Year' || enrollmentRecord.studentInfo?.yearLevel === '1st Year') && studentStatus !== 'Enrolled' ? (
+                      {enrollmentRecord?.examDate && enrollmentRecord.yearLevel === '1st Year' && studentStatus === 'Validating' ? (
                         <div className={cn(
                           "text-center p-4 pt-8 rounded-2xl border mt-2 shadow-sm relative overflow-hidden group min-w-[240px]",
                           isExamDone ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
@@ -734,18 +742,11 @@ export default function Dashboard({ user }: DashboardProps) {
                             </>
                           )}
                         </div>
-                      ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? (() => {
-                        const is1stYear = enrollmentRecord?.yearLevel === '1st Year' || enrollmentRecord?.studentInfo?.yearLevel === '1st Year';
-                        const isEnrolled = studentStatus === 'Enrolled';
-                        
-                        // Only show assessment/exam info for 1st Year students who are NOT yet enrolled
-                        if (!is1stYear || isEnrolled) return null;
-
+                      ) : (studentStatus === 'Validating' && enrollmentRecord?.yearLevel === '1st Year') ? (() => {
                         const noExamDate = !enrollmentRecord?.examDate;
-                        const isValidating = studentStatus === 'Validating';
                         
                         // For 1st years with no exam date yet and still validating, show "Not Set"
-                        if (noExamDate && isValidating) {
+                        if (noExamDate) {
                           return (
                             <div className="text-center py-6 bg-amber-50/50 rounded-2xl border border-dashed border-amber-200 mt-2">
                               <div className="flex flex-col items-center gap-2">
@@ -758,24 +759,7 @@ export default function Dashboard({ user }: DashboardProps) {
                             </div>
                           );
                         }
-
-                        // Otherwise show Assessment Done (if it has a date)
-                        if (enrollmentRecord?.updatedAt) {
-                          const submissionTime = new Date(enrollmentRecord.submittedAt || enrollmentRecord.enrolledAt);
-                          const updatedAtTime = new Date(enrollmentRecord.updatedAt);
-                          const assessmentTime = updatedAtTime < submissionTime ? submissionTime : updatedAtTime;
-
-                          return (
-                            <div className="text-center py-2">
-                               <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 mb-2">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                <span className="text-[10px] font-black uppercase tracking-widest">Assessment Done</span>
-                              </div>
-                              <p className="text-xs font-bold text-[#052e16]">{assessmentTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                              <p className="text-[10px] font-bold text-[#052e16]/60 mt-1 uppercase">{assessmentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                            </div>
-                          );
-                        }
+                        
                         return null;
                       })() : null}
                     </div>

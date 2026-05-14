@@ -93,7 +93,7 @@ export default function Settings({ user }: SettingsProps) {
     e.preventDefault();
     setIsSavingProfile(true);
     try {
-      await updateDoc(doc(db, 'users', user.username), {
+      await updateDoc(doc(db, 'users', user.uid), {
         name: profileData.name
       });
       toast.success("Profile updated successfully!");
@@ -157,7 +157,7 @@ export default function Settings({ user }: SettingsProps) {
                       reader.onloadend = async () => {
                         const base64 = reader.result as string;
                         try {
-                          await updateDoc(doc(db, 'users', user.username), { profilePicture: base64 });
+                          await updateDoc(doc(db, 'users', user.uid), { profilePicture: base64 });
                           toast.success("Profile picture updated!");
                         } catch (err) {
                           toast.error("Failed to update picture");

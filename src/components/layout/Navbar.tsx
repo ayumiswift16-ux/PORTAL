@@ -33,7 +33,7 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
     // Use a simple query with a strict limit to save quota
     const q = query(
       collection(db, 'notifications'),
-      where('userId', '==', user.username),
+      where('userId', '==', user.uid),
       limit(20)
     );
 
@@ -45,7 +45,9 @@ export function Navbar({ user, onMenuClick, onLogout, onShowProfile, onShowRepor
       // Sort in memory to avoid index requirements
       setNotifications(notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
-      console.error("Firestore Error in Navbar:", error);
+      import('@/src/lib/firebase').then(({ handleFirestoreError, OperationType }) => {
+        handleFirestoreError(error, OperationType.LIST, 'notifications');
+      }).catch(() => console.error("Firestore Error in Navbar:", error));
     });
 
     return () => unsubscribe();

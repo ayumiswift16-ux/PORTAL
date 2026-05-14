@@ -9,7 +9,7 @@ service cloud.firestore {
     function isHardcodedAdmin() {
       return isSignedIn() && request.auth.token.email != null && (
         request.auth.token.email == 'davevenzon789@gmail.com' || 
-        request.auth.token.email.matches('admin[1-5]@school\\.portal$')
+        request.auth.token.email.matches('.*admin[1-5]@school\\.portal$')
       );
     }
 
@@ -49,41 +49,35 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow list: if true; 
-      allow read: if isSignedIn() && (
-        request.auth.uid == userId || 
-        isAdmin() ||
-        isApprovedProfessor()
-      );
-      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isApprovedProfessor());
+      allow update, delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn();
     }
 
     match /admins/{emailId} {
+      allow get: if true;
       allow list: if isSignedIn();
       allow read: if isSignedIn() && (
         emailId == request.auth.token.email || 
         emailId == request.auth.uid ||
-        isHardcodedAdmin() ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+        isAdmin()
       );
       allow write: if isAdmin();
     }
 
     match /enrollments/{enrollmentId} {
       allow list: if isAdmin() || (isSignedIn() && (
-          resource.data.studentInfo.email == request.auth.token.email || 
           resource.data.userId == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.studentInfo.email == request.auth.token.email) ||
           (isApprovedProfessor() && (
-            resource.data.section == getProfessorData().get('assignedSection', null) || 
             resource.data.section in getProfessorData().get('assignedSections', [])
           ))
         ));
         
-      allow get: if isAdmin() || (isSignedIn() && resource.data != null && (
-          resource.data.studentInfo.email == request.auth.token.email || 
+      allow get: if isAdmin() || (isSignedIn() && (
           resource.data.userId == request.auth.uid ||
-          (isApprovedProfessor() && resource.data != null && (
-            resource.data.section == getProfessorData().get('assignedSection', null) || 
+          (request.auth.token.email != null && resource.data.studentInfo.email == request.auth.token.email) ||
+          (isApprovedProfessor() && (
             resource.data.section in getProfessorData().get('assignedSections', [])
           ))
         )) ||
@@ -95,10 +89,11 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update: if isAdmin() || (isSignedIn() && (
         enrollmentId == request.auth.uid ||
-        (resource != null && resource.data.userId == request.auth.uid) ||
-        (request.auth.token.email != null && request.auth.token.email.matches(enrollmentId + '@school\\.portal$')) ||
+        (resource != null && (
+          resource.data.userId == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.studentInfo.email == request.auth.token.email)
+        )) ||
         (isApprovedProfessor() && (
-           resource.data.section == getProfessorData().get('assignedSection', null) || 
            resource.data.section in getProfessorData().get('assignedSections', [])
         ))
       ));
@@ -110,18 +105,16 @@ service cloud.firestore {
     }
 
     match /teacher_requests/{requestId} {
-      allow list: if true; 
-      allow get: if true; 
+      allow get, list: if true; 
       allow create: if true;
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || (request.resource.data.status == 'pending');
+      allow delete: if isAdmin();
     }
 
     match /notifications/{notifId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId != null);
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get, update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin() || isSignedIn();
     }
     
     match /schedules/{scheduleId} {

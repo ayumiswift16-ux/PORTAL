@@ -51,7 +51,7 @@ export default function Scheduling({ user }: SchedulingProps) {
               }
             }
           } else if (user.role === 'student') {
-            const docRef = doc(db, 'enrollments', user.username);
+            const docRef = doc(db, 'enrollments', user.uid);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
               const mine = docSnap.data() as EnrollmentRecord;
