@@ -155,7 +155,10 @@ export default function Dashboard({ user }: DashboardProps) {
               setEnrollmentRecord(null);
             }
           }).catch(err => {
-            console.error("Fallback fetch error:", err);
+            // Silently handle permission denied for non-existent/unauthorized records
+            if (err.code !== 'permission-denied') {
+              console.error("Fallback fetch error:", err);
+            }
             setEnrollmentRecord(null);
           });
         }
@@ -693,7 +696,7 @@ export default function Dashboard({ user }: DashboardProps) {
                         (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-300"
                       )}>Assessment</span>
                       <Clock className={cn("h-6 w-6 mb-4", (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? "text-[#052e16]" : "text-slate-200")} />
-                      {enrollmentRecord?.examDate && enrollmentRecord.yearLevel === '1st Year' ? (
+                      {enrollmentRecord?.examDate && (enrollmentRecord.yearLevel === '1st Year' || enrollmentRecord.studentInfo?.yearLevel === '1st Year') && studentStatus !== 'Enrolled' ? (
                         <div className={cn(
                           "text-center p-4 pt-8 rounded-2xl border mt-2 shadow-sm relative overflow-hidden group min-w-[240px]",
                           isExamDone ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
@@ -732,12 +735,17 @@ export default function Dashboard({ user }: DashboardProps) {
                           )}
                         </div>
                       ) : (studentStatus === 'Approved' || studentStatus === 'Enrolled' || studentStatus === 'Validating') ? (() => {
-                        const is1stYear = enrollmentRecord?.yearLevel === '1st Year';
+                        const is1stYear = enrollmentRecord?.yearLevel === '1st Year' || enrollmentRecord?.studentInfo?.yearLevel === '1st Year';
+                        const isEnrolled = studentStatus === 'Enrolled';
+                        
+                        // Only show assessment/exam info for 1st Year students who are NOT yet enrolled
+                        if (!is1stYear || isEnrolled) return null;
+
                         const noExamDate = !enrollmentRecord?.examDate;
                         const isValidating = studentStatus === 'Validating';
                         
                         // For 1st years with no exam date yet and still validating, show "Not Set"
-                        if (is1stYear && noExamDate && isValidating) {
+                        if (noExamDate && isValidating) {
                           return (
                             <div className="text-center py-6 bg-amber-50/50 rounded-2xl border border-dashed border-amber-200 mt-2">
                               <div className="flex flex-col items-center gap-2">

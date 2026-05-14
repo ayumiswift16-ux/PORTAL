@@ -6,36 +6,38 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isEmailVerified() {
-      return isSignedIn() && (
-        request.auth.token.email_verified == true || 
-        request.auth.token.email.matches('.*@school\\.portal$')
+    function isHardcodedAdmin() {
+      return isSignedIn() && request.auth.token.email != null && (
+        request.auth.token.email == 'davevenzon789@gmail.com' || 
+        request.auth.token.email.matches('admin[1-5]@school\\.portal$')
       );
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
     function isAdmin() {
-      return isSignedIn() && (
-        (request.auth.token.email != null && (
-          request.auth.token.email == 'davevenzon789@gmail.com' || 
-          request.auth.token.email.matches('admin[1-5]@school\\.portal$')
-        )) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+      return isHardcodedAdmin() || (
+        isSignedIn() && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+        )
       );
     }
 
     function isApprovedProfessor() {
       return isSignedIn() && (
-        // Check local users doc
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().get('role', '') == 'professor') ||
-        // OR check admins collection where professors are mirrored
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email))) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'professor')
       );
+    }
+
+    function getProfessorData() {
+      let email = request.auth.token.email;
+      return (email != null && exists(/databases/$(database)/documents/admins/$(email)))
+        ? get(/databases/$(database)/documents/admins/$(email)).data
+        : (exists(/databases/$(database)/documents/admins/$(request.auth.uid)))
+          ? get(/databases/$(database)/documents/admins/$(request.auth.uid)).data
+          : get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     // Default deny
@@ -43,65 +45,61 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Admins can do everything
-    match /{path=**} {
-      allow read, write: if isAdmin();
-    }
-
     // === Collections ===
 
     match /users/{userId} {
-      allow list: if isSignedIn(); // Allow searching for roles, etc.
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if true; 
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId || 
+        isAdmin() ||
+        isApprovedProfessor()
+      );
       allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
     }
 
     match /admins/{emailId} {
-      allow list: if isAdmin();
-      // Allow users to read their own admin entry to verify roles
-      allow read: if isAdmin() || (
-        isSignedIn() && request.auth.token.email != null && (
-          emailId == request.auth.token.email ||
-          emailId == request.auth.uid
-        )
+      allow list: if isSignedIn();
+      allow read: if isSignedIn() && (
+        emailId == request.auth.token.email || 
+        emailId == request.auth.uid ||
+        isHardcodedAdmin() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
       );
+      allow write: if isAdmin();
     }
 
     match /enrollments/{enrollmentId} {
-      allow list: if isAdmin() || 
-        (isSignedIn() && (
+      allow list: if isAdmin() || (isSignedIn() && (
           resource.data.studentInfo.email == request.auth.token.email || 
-          resource.data.userId == request.auth.uid
-        )) ||
-        (isApprovedProfessor() && (
-          resource.data.section == getUserData().get('assignedSection', null) || 
-          resource.data.section in getUserData().get('assignedSections', [])
+          resource.data.userId == request.auth.uid ||
+          (isApprovedProfessor() && (
+            resource.data.section == getProfessorData().get('assignedSection', null) || 
+            resource.data.section in getProfessorData().get('assignedSections', [])
+          ))
         ));
         
-      allow get: if isAdmin() || 
-        (isSignedIn() && resource.data != null && (
+      allow get: if isAdmin() || (isSignedIn() && resource.data != null && (
           resource.data.studentInfo.email == request.auth.token.email || 
-          resource.data.userId == request.auth.uid
+          resource.data.userId == request.auth.uid ||
+          (isApprovedProfessor() && resource.data != null && (
+            resource.data.section == getProfessorData().get('assignedSection', null) || 
+            resource.data.section in getProfessorData().get('assignedSections', [])
+          ))
         )) ||
-        (isApprovedProfessor() && resource.data != null && (
-          resource.data.section == getUserData().get('assignedSection', null) || 
-          resource.data.section in getUserData().get('assignedSections', [])
-        )) ||
-        // Allow student to fetch their OWN record even if it doesn't exist yet (for creation check)
         (isSignedIn() && (
            enrollmentId == request.auth.uid ||
-           (request.auth.token.email != null && enrollmentId == request.auth.token.email.replace('@school.portal', ''))
+           (request.auth.token.email != null && request.auth.token.email.matches(enrollmentId + '@school\\.portal$'))
         ));
 
       allow create: if isSignedIn();
       allow update: if isAdmin() || (isSignedIn() && (
-        // Students can write their own enrollment
         enrollmentId == request.auth.uid ||
         (resource != null && resource.data.userId == request.auth.uid) ||
-        (request.auth.token.email != null && enrollmentId == request.auth.token.email.replace('@school.portal', '')) ||
+        (request.auth.token.email != null && request.auth.token.email.matches(enrollmentId + '@school\\.portal$')) ||
         (isApprovedProfessor() && (
-           resource.data.section == getUserData().get('assignedSection', null) || 
-           resource.data.section in getUserData().get('assignedSections', [])
+           resource.data.section == getProfessorData().get('assignedSection', null) || 
+           resource.data.section in getProfessorData().get('assignedSections', [])
         ))
       ));
       allow delete: if isAdmin();
@@ -112,7 +110,7 @@ service cloud.firestore {
     }
 
     match /teacher_requests/{requestId} {
-      allow list: if isAdmin();
+      allow list: if true; 
       allow get: if true; 
       allow create: if true;
       allow update, delete: if isAdmin();

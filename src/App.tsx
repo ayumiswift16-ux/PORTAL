@@ -60,32 +60,84 @@ export default function App() {
               localStorage.setItem('cdm_user', JSON.stringify(updated));
               return updated;
             });
+          } else {
+            // If user doc is deleted, we only log out if they were PREVIOUSLY a student 
+            // and we had a record for them (this implies administrative deletion)
+            // For new users, it's normal to not have a doc yet.
+            if (!isAdmin) {
+               setUser(prev => {
+                 if (prev?.role === 'student' && docSnap.id === firebaseUser.uid) {
+                    // Check if they have specific fields that only exist after registration
+                    // If they are just a "new" user, don't log out.
+                 }
+                 return prev;
+               });
+            }
           }
         }, (err) => console.error("User doc error:", err));
 
-        // Professor sync
+        // Professor/Admin sync
         if (firebaseUser.email) {
-          unsubscribeAdminDoc = onSnapshot(doc(db, 'admins', firebaseUser.email), (snap) => {
-            if (snap.exists()) {
-              const adminData = snap.data();
-              setUser(prev => {
-                if (!prev) return prev;
-                const updated = {
-                  ...prev,
-                  role: 'professor' as any,
-                  assignedSections: adminData.assignedSections || [],
-                  assignedSection: adminData.assignedSection || adminData.assignedSections?.[0] || null
-                };
-                localStorage.setItem('cdm_user', JSON.stringify(updated));
-                return updated;
-              });
-            }
-          }, (err) => {
-            // Silence permission denied errors for non-admins/non-profs
-            if (err.code !== 'permission-denied') {
-              console.error("Admin check error:", err);
-            }
-          });
+          // We only track admin/professor docs if they aren't already a hardcoded admin
+          if (!isAdmin) {
+            const adminIds = [firebaseUser.email, firebaseUser.uid];
+            const adminUnsubs = adminIds.map(id => 
+              onSnapshot(doc(db, 'admins', id), (snap) => {
+                if (snap.exists()) {
+                  const adminData = snap.data();
+                  
+                  setUser(prev => {
+                    if (!prev) return prev;
+                    const updated = {
+                      ...prev,
+                      role: 'professor' as any,
+                      assignedSections: adminData.assignedSections || [],
+                      assignedSection: adminData.assignedSection || adminData.assignedSections?.[0] || null
+                    };
+                    localStorage.setItem('cdm_user', JSON.stringify(updated));
+                    return updated;
+                  });
+                  
+                  // Check master request status for deletion (REAL-TIME)
+                  const emailToCheck = adminData.email || (id.includes('@') ? id : null);
+                  if (emailToCheck) {
+                    const reqRef = doc(db, 'teacher_requests', emailToCheck);
+                    const unsubReq = onSnapshot(reqRef, (reqSnap) => {
+                      if (reqSnap.exists() && reqSnap.data().status === 'deleted') {
+                        console.warn("Professor account deleted by admin, signing out...");
+                        signOut(auth);
+                      }
+                    });
+                    (window as any)._teacherReqUnsubs = (window as any)._teacherReqUnsubs || [];
+                    (window as any)._teacherReqUnsubs.push(unsubReq);
+                  }
+                } else {
+                  // If we WERE a professor, and the admin doc is gone, we check the other ID
+                  // but to be safe and avoid loops, we only sign out if the role stays professor 
+                  // and we have confirmed NO admin doc exists for either ID
+                  setUser(prev => {
+                    if (prev?.role === 'professor') {
+                       // One-time check if other record exists
+                       import('firebase/firestore').then(({ getDoc, doc: fDoc }) => {
+                         const otherId = id === firebaseUser.email ? firebaseUser.uid : firebaseUser.email!;
+                         getDoc(fDoc(db, 'admins', otherId)).then(otherSnap => {
+                           if (!otherSnap.exists()) {
+                             console.warn("Professor record missing, signing out...");
+                             signOut(auth);
+                           }
+                         });
+                       });
+                    }
+                    return prev;
+                  });
+                }
+              }, (err) => {
+                // Silently ignore permission errors for non-admins
+                if (err.code !== 'permission-denied') console.error("Admin sync error:", err);
+              })
+            );
+            unsubscribeAdminDoc = () => adminUnsubs.forEach(unsub => unsub());
+          }
         }
       } else {
         setUser(null);

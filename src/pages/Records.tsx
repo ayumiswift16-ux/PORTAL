@@ -34,7 +34,7 @@ import { useNavigate } from 'react-router-dom';
 import { EnrollmentRecord, TeacherRequest } from '@/src/types';
 import toast from 'react-hot-toast';
 import { db, OperationType, handleFirestoreError } from '@/src/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where, limit, getDocs, setDoc, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, query, orderBy, where, limit, getDocs, setDoc, addDoc, getDoc } from 'firebase/firestore';
 import { COURSES } from '@/src/constants';
 import { sendNotification } from '@/src/lib/notifications';
 
@@ -199,9 +199,11 @@ export default function Records({ user }: RecordsProps) {
 
   const filteredProfessors = useMemo(() => {
     return teacherRequests.filter(req => 
-      req.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      req.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      req.email.toLowerCase().includes(searchTerm.toLowerCase())
+      req.status !== 'deleted' && (
+        req.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        req.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        req.email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
     );
   }, [teacherRequests, searchTerm]);
 
@@ -477,6 +479,43 @@ export default function Records({ user }: RecordsProps) {
     }
   };
 
+  const handleDeclineProfessor = async (prof: TeacherRequest, isRevoke = false) => {
+    const action = isRevoke ? 'Decline' : 'Reject';
+    if (!confirm(`${action} this professor? This will revoke their access.`)) return;
+
+    try {
+      // 1. Update status in teacher_requests
+      await updateDoc(doc(db, 'teacher_requests', prof.id), { status: 'rejected' });
+
+      // 2. Cleanup associated permissions
+      const sanitizedUsername = prof.username.toLowerCase().replace(/\s+/g, '');
+      const portalEmail = `${sanitizedUsername}@school.portal`;
+      
+      const adminDocsToDelete = new Set([portalEmail]);
+      if (prof.email) adminDocsToDelete.add(prof.email);
+
+      for (const id of Array.from(adminDocsToDelete)) {
+        await deleteDoc(doc(db, 'admins', id));
+      }
+
+      // 3. Update user role if doc exists
+      const userDocId = (prof as any).uid || sanitizedUsername;
+      try {
+        const uDoc = await getDoc(doc(db, 'users', userDocId));
+        if (uDoc.exists()) {
+          await updateDoc(uDoc.ref, { role: 'student', updatedAt: new Date().toISOString() });
+        }
+      } catch (e) {
+        console.warn("Could not update user role during decline:", e);
+      }
+
+      toast.error(`Professor access ${isRevoke ? 'revoked' : 'rejected'}.`);
+    } catch (err) {
+      console.error("Error declining professor:", err);
+      toast.error(`Failed to ${action.toLowerCase()} professor.`);
+    }
+  };
+
   const confirmDeleteProfessor = async () => {
     if (!profDeleteId) return;
     const prof = teacherRequests.find(p => p.id === profDeleteId);
@@ -486,22 +525,46 @@ export default function Records({ user }: RecordsProps) {
     }
 
     try {
-      // 1. Delete from teacher_requests
-      await deleteDoc(doc(db, 'teacher_requests', profDeleteId));
+      // 1. Mark as deleted in teacher_requests (keep for blocking)
+      await updateDoc(doc(db, 'teacher_requests', profDeleteId), { 
+        status: 'deleted',
+        deletedAt: new Date().toISOString()
+      });
 
-      // 2. Delete from users
+      // 2. Cleanup associated users
       const sanitizedUsername = prof.username.toLowerCase().replace(/\s+/g, '');
-      const userDocsToDelete = new Set([sanitizedUsername, prof.username]);
-      if ((prof as any).uid) userDocsToDelete.add((prof as any).uid);
+      const userDocsToDelete = new Set<string>();
       
-      for (const id of Array.from(userDocsToDelete)) {
-         await deleteDoc(doc(db, 'users', id));
+      // Add known IDs
+      userDocsToDelete.add(sanitizedUsername);
+      userDocsToDelete.add(prof.username);
+      if ((prof as any).uid) userDocsToDelete.add((prof as any).uid);
+
+      // Query for potential user docs by emails
+      const portalEmail = `${sanitizedUsername}@school.portal`;
+      const queries = [
+        query(collection(db, 'users'), where('email', '==', portalEmail)),
+        query(collection(db, 'users'), where('username', '==', sanitizedUsername))
+      ];
+      
+      if (prof.email) {
+        queries.push(query(collection(db, 'users'), where('gmail', '==', prof.email)));
+        queries.push(query(collection(db, 'users'), where('email', '==', prof.email)));
       }
 
+      for (const q of queries) {
+        const snap = await getDocs(q);
+        snap.forEach(d => userDocsToDelete.add(d.id));
+      }
+      
+      // Execute deletions
+      const deletePromises = Array.from(userDocsToDelete).map(id => deleteDoc(doc(db, 'users', id)));
+      await Promise.all(deletePromises);
+
       // 3. Delete from admins
-      const officialEmail = `${sanitizedUsername}@school.portal`;
-      const adminDocsToDelete = new Set([officialEmail]);
+      const adminDocsToDelete = new Set([portalEmail]);
       if (prof.email) adminDocsToDelete.add(prof.email);
+      if ((prof as any).uid) adminDocsToDelete.add((prof as any).uid);
 
       for (const id of Array.from(adminDocsToDelete)) {
          await deleteDoc(doc(db, 'admins', id));
@@ -909,35 +972,49 @@ export default function Records({ user }: RecordsProps) {
                         {prof.createdAt.split('T')[0]}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {prof.status === 'pending' && (
-                          <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2">
+                          {prof.status === 'pending' && (
+                            <>
+                              <button 
+                                onClick={() => handleApproveProfessor(prof)}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm"
+                              >
+                                Approve
+                              </button>
+                              <button 
+                                onClick={() => handleDeclineProfessor(prof)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                title="Reject Request"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                          {prof.status === 'approved' && (
                             <button 
-                              onClick={() => handleApproveProfessor(prof)}
-                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm"
+                              onClick={() => handleDeclineProfessor(prof, true)}
+                              className="px-3 py-1.5 text-[10px] font-bold text-red-600 hover:bg-red-50 rounded-lg border border-red-100 transition-all uppercase tracking-tight"
+                              title="Decline Professor"
                             >
-                              Approve
+                              Decline
                             </button>
-                            <button 
-                              onClick={async () => {
-                                if (confirm('Reject this request?')) {
-                                  await updateDoc(doc(db, 'teacher_requests', prof.id), { status: 'rejected' });
-                                  toast.error('Professor request rejected.');
-                                }
-                              }}
-                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        )}
-                        {prof.status !== 'pending' && (
-                           <button 
-                              onClick={() => setProfDeleteId(prof.id)}
-                              className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                           >
+                          )}
+                          {prof.status === 'rejected' && (
+                             <button 
+                               onClick={() => handleApproveProfessor(prof)}
+                               className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-100 transition-all uppercase tracking-tight"
+                             >
+                               Re-approve
+                             </button>
+                          )}
+                          <button 
+                             onClick={() => setProfDeleteId(prof.id)}
+                             className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                             title="Wipe Account"
+                          >
                             <Trash2 className="h-4 w-4" />
-                           </button>
-                        )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1289,39 +1366,14 @@ export default function Records({ user }: RecordsProps) {
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-1">
-                    <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Submitted Documents</p>
-                    <span className="text-[10px] font-black text-blue-600 hover:underline cursor-pointer" onClick={() => setSelectedDetailRecord(selectedRecord)}>View Detailed Profile</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-3">
-                    {['summaryOfGrades', 'goodMoral', 'birthCertificate', 'twoByTwoPhoto'].map((docKey) => {
-                      const docImg = selectedRecord?.studentInfo.documents?.[docKey as keyof typeof selectedRecord.studentInfo.documents];
-                      const label = docKey === 'twoByTwoPhoto' ? 'Photo' : docKey.replace(/([A-Z])/g, ' $1').trim().split(' ').pop();
-                      
-                      return (
-                        <div key={docKey} className="space-y-1.5 group">
-                          <div 
-                            className={cn(
-                              "aspect-[3/4] w-full rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-400 hover:shadow-lg hover:shadow-blue-500/10 transition-all",
-                              !docImg && "opacity-40 grayscale"
-                            )}
-                            onClick={() => docImg && setPreviewImage({ url: docImg, title: docKey.replace(/([A-Z])/g, ' $1').trim() })}
-                          >
-                            {docImg ? (
-                              <img src={docImg} alt={label} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="flex flex-col items-center gap-1 opacity-40">
-                                <File className="h-4 w-4 text-slate-400" />
-                                <span className="text-[8px] font-black uppercase">None</span>
-                              </div>
-                            )}
-                          </div>
-                          <p className="text-[8px] font-black text-slate-400 uppercase text-center truncate group-hover:text-slate-900 transition-colors uppercase tracking-tight">{label}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="flex justify-end px-1">
+                  <button 
+                    onClick={() => setSelectedDetailRecord(selectedRecord)}
+                    className="flex items-center gap-2 text-[10px] font-black text-blue-600 hover:text-blue-800 transition-colors uppercase tracking-widest bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100"
+                  >
+                    <Eye className="h-3 w-3" />
+                    View Detailed Profile
+                  </button>
                 </div>
 
                 <div className="space-y-6 pt-2">

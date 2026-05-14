@@ -34,7 +34,7 @@ interface SettingsProps {
   user: UserType;
 }
 
-type TabType = 'General' | 'Enrollment Schedule' | 'Professor Management' | 'Account Security' | 'Notifications';
+  type TabType = 'General' | 'Enrollment Schedule' | 'Account Security' | 'Notifications';
 
 export default function Settings({ user }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<TabType>('General');
@@ -53,10 +53,7 @@ export default function Settings({ user }: SettingsProps) {
     enrollmentEndDate: ''
   });
 
-  const [professors, setProfessors] = useState<UserType[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
-  const [isAddingProfessor, setIsAddingProfessor] = useState(false);
-  const [newProfessorEmail, setNewProfessorEmail] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -69,31 +66,6 @@ export default function Settings({ user }: SettingsProps) {
         }
 
         if (user.role === 'admin') {
-          // Fetch Professors from users collection
-          const profsQuery = query(collection(db, 'users'), where('role', '==', 'professor'));
-          const profsSnap = await getDocs(profsQuery);
-          const profsData = profsSnap.docs.map(doc => ({ ...doc.data() }) as UserType);
-          
-          // Also fetch from admins collection to find those who haven't logged in yet
-          const adminsSnap = await getDocs(collection(db, 'admins'));
-          const adminsData = adminsSnap.docs.map(doc => ({
-            username: doc.id,
-            email: doc.id,
-            name: doc.data().name || doc.id.split('@')[0],
-            role: 'professor',
-            assignedSections: doc.data().assignedSections || [],
-            assignedSection: doc.data().assignedSection || null
-          }) as UserType);
-
-          // Merge: prioritize users collection for actual logged in profs
-          const merged = [...profsData];
-          adminsData.forEach(admin => {
-             if (!merged.find(p => p.email === admin.email)) {
-               merged.push(admin);
-             }
-          });
-          setProfessors(merged);
-
           // Fetch Sections for assignment
           const sectionsSnap = await getDocs(collection(db, 'sections'));
           setSections(sectionsSnap.docs.map(doc => doc.data() as Section));
@@ -130,86 +102,6 @@ export default function Settings({ user }: SettingsProps) {
       toast.error("Failed to update profile");
     } finally {
       setIsSavingProfile(false);
-    }
-  };
-
-  const handleAddProfessor = async () => {
-    if (!newProfessorEmail.includes('@')) {
-      toast.error("Invalid email address");
-      return;
-    }
-    try {
-      // Create record in admins collection for pre-authorization
-      const profId = newProfessorEmail.trim();
-      await setDoc(doc(db, 'admins', profId), {
-        email: profId,
-        name: profId.split('@')[0],
-        role: 'professor',
-        assignedSections: [],
-        createdAt: new Date().toISOString()
-      });
-      
-      setProfessors(prev => [...prev, {
-        username: profId,
-        email: profId,
-        name: profId.split('@')[0],
-        role: 'professor',
-        assignedSections: []
-      } as UserType]);
-      
-      setNewProfessorEmail('');
-      setIsAddingProfessor(false);
-      toast.success("Professor added successfully");
-    } catch (error) {
-      toast.error("Failed to add professor");
-    }
-  };
-
-  const handleRemoveProfessor = async (email: string) => {
-    if (!confirm(`Remove ${email} as professor?`)) return;
-    try {
-      await deleteDoc(doc(db, 'admins', email));
-      // Also potentially update their user role back to student or delete, 
-      // but usually removing from admins is enough to revoke prof access in App.tsx
-      setProfessors(prev => prev.filter(p => p.email !== email));
-      toast.success("Professor removed");
-    } catch (error) {
-      toast.error("Failed to remove professor");
-    }
-  };
-
-  const handleToggleSection = async (profEmail: string, sectionName: string) => {
-    const prof = professors.find(p => p.email === profEmail);
-    if (!prof) return;
-
-    const currentSections = prof.assignedSections || [];
-    const isAssigned = currentSections.includes(sectionName);
-    
-    let updatedSections: string[];
-    if (isAssigned) {
-      updatedSections = currentSections.filter(s => s !== sectionName);
-    } else {
-      updatedSections = [...currentSections, sectionName];
-    }
-
-    try {
-      // Update both admins (pre-auth) and users (live doc) if possible
-      const updateData = {
-        assignedSections: updatedSections,
-        assignedSection: updatedSections[0] || null,
-        updatedAt: new Date().toISOString()
-      };
-
-      await updateDoc(doc(db, 'admins', profEmail), updateData);
-      
-      // Try to find the user in 'users' collection too (since their ID might be different from email)
-      // but we use email as ID in admins. App.tsx handles the sync when they login.
-      
-      setProfessors(prev => prev.map(p => p.email === profEmail ? { ...p, ...updateData } : p));
-      toast.success(isAssigned ? "Section removed" : "Section assigned");
-    } catch (error) {
-      console.error("Error toggling section:", error);
-      toast.error("Failed to update section");
     }
   };
 
@@ -284,7 +176,6 @@ export default function Settings({ user }: SettingsProps) {
                 {[
                   { label: 'General', icon: Smartphone },
                   { label: 'Enrollment Schedule', icon: Calendar },
-                  ...(user.role === 'admin' ? [{ label: 'Professor Management', icon: Users }] : []),
                   { label: 'Account Security', icon: Shield },
                   { label: 'Notifications', icon: Bell },
                 ].map((item) => (
@@ -494,152 +385,6 @@ export default function Settings({ user }: SettingsProps) {
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          {activeTab === 'Professor Management' && user.role === 'admin' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="text-left">
-                  <h3 className="text-xl font-bold text-slate-900">Professor Access Control</h3>
-                  <p className="text-sm text-slate-500">Assign academic sections to professors for portal management.</p>
-                </div>
-                <Button 
-                  onClick={() => setIsAddingProfessor(true)}
-                  className="bg-blue-600 hover:bg-blue-700 rounded-xl flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest h-12 px-6"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Professor
-                </Button>
-              </div>
-
-              <Card glass className="border-none shadow-sm rounded-[2rem] overflow-hidden">
-                <div className="p-4 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
-                  <div className="relative w-full max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input 
-                      placeholder="Search professor by name or email..."
-                      className="pl-10 h-10 bg-white border-slate-200 text-sm rounded-xl"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50/50">
-                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Professor Details</th>
-                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Assigned Sections</th>
-                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {professors
-                        .filter(p => !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.email.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map((prof) => (
-                        <tr key={prof.email} className="hover:bg-slate-50/30 transition-colors">
-                          <td className="px-6 py-6">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm uppercase">
-                                {(prof.name || 'P')[0]}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-slate-900">{prof.name}</p>
-                                <p className="text-xs text-slate-500">{prof.email}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6">
-                            <div className="flex flex-wrap gap-1.5 max-w-xs">
-                              {(prof.assignedSections || []).map(s => (
-                                <span key={s} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-lg border border-blue-100 flex items-center gap-1">
-                                  {s}
-                                  <button onClick={() => handleToggleSection(prof.email, s)} className="hover:text-red-600 transition-colors">
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              ))}
-                              <div className="relative group/menu">
-                                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] font-bold border border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-all">
-                                  <Plus className="h-3 w-3 mr-1" /> Assign
-                                </Button>
-                                <div className="absolute top-full left-0 mt-2 hidden group-hover/menu:block z-50 bg-white shadow-2xl border border-slate-100 rounded-2xl p-2 min-w-[220px] max-h-56 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
-                                  <p className="text-[10px] font-black text-slate-400 uppercase px-3 py-2 mb-1 border-b border-slate-50">Select Section</p>
-                                  {sections
-                                    .filter(s => !(prof.assignedSections || []).includes(s.name))
-                                    .map(section => (
-                                    <button
-                                      key={section.name}
-                                      onClick={() => handleToggleSection(prof.email, section.name)}
-                                      className="w-full text-left px-3 py-2.5 text-xs hover:bg-slate-50 rounded-xl font-medium text-slate-700 flex justify-between items-center transition-colors"
-                                    >
-                                      {section.name}
-                                      <span className="text-[9px] font-bold text-slate-300 group-hover:text-blue-400 uppercase">{section.yearLevel}</span>
-                                    </button>
-                                  ))}
-                                  {sections.length === 0 && (
-                                    <p className="px-3 py-4 text-[10px] text-slate-400 italic text-center">No sections created yet.</p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6 text-right">
-                            <button 
-                              onClick={() => handleRemoveProfessor(prof.email)}
-                              className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {professors.length === 0 && (
-                        <tr>
-                          <td colSpan={3} className="py-24 text-center text-slate-400">
-                            <div className="h-20 w-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                              <Users className="h-10 w-10 opacity-20" />
-                            </div>
-                            <p className="text-sm font-bold text-slate-600">No Professors Registered</p>
-                            <p className="text-xs mt-1">Start by adding a professor's email to authorize them.</p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-
-              {isAddingProfessor && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md transition-all">
-                  <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 text-left">
-                    <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-[1.5rem] flex items-center justify-center mb-8">
-                       <Plus className="h-8 w-8" />
-                    </div>
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Add Professor</h3>
-                    <p className="text-sm text-slate-500 mb-8 font-medium">This will authorize the Gmail account to access the Professor Portal. They must login using this exact email.</p>
-                    <div className="space-y-6">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Gmail Address</label>
-                        <div className="relative">
-                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                          <Input 
-                            placeholder="e.g., professor@gmail.com" 
-                            className="pl-12 rounded-2xl h-14 bg-slate-50 border-slate-100 font-medium"
-                            value={newProfessorEmail}
-                            onChange={(e) => setNewProfessorEmail(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-4 pt-4">
-                        <Button variant="ghost" className="flex-1 rounded-2xl h-14 font-bold text-slate-500" onClick={() => setIsAddingProfessor(false)}>Cancel</Button>
-                        <Button className="flex-1 rounded-2xl h-14 bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-600/20 font-black uppercase text-[10px] tracking-widest" onClick={handleAddProfessor}>Add Professor</Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
           )}
 
           {activeTab === 'Account Security' && (
